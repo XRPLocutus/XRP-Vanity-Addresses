@@ -1,0 +1,27 @@
+[package]
+name = "xrpl-vanity"
+version = "1.0.0"
+edition = "2024"
+authors = ["XRPLocutus <XRPLocutus@protonmail.com>"]
+description = "High-performance XRPL vanity wallet address generator using Ed25519"
+license = "MIT"
+repository = "https://github.com/XRPLocutus/xrpl-vanity"
+keywords = ["xrpl", "xrp", "vanity", "wallet", "crypto"]
+categories = ["command-line-utilities", "cryptography"]
+readme = "README.md"
+
+[dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+sha2 = "0.10"
+ripemd = "0.1"
+bs58 = "0.5"
+rayon = "1.10"
+clap = { version = "4", features = ["derive"] }
+num_cpus = "1.16"
+hex = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
