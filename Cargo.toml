@@ -1,7 +1,7 @@
 [package]
 name = "xrpl-vanity"
-version = "1.0.0"
-edition = "2024"
+version = "2.0.0"
+edition = "2021"
 authors = ["XRPLocutus <XRPLocutus@protonmail.com>"]
 description = "High-performance XRPL vanity wallet address generator using Ed25519"
 license = "MIT"
@@ -13,6 +13,7 @@ readme = "README.md"
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
+rand_chacha = "0.3"
 sha2 = "0.10"
 ripemd = "0.1"
 bs58 = "0.5"
