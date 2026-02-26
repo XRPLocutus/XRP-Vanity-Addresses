@@ -1,6 +1,6 @@
 # ⚡ XRPL Vanity Address Generator v2.0
 
-A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Generates Ed25519 keypairs at maximum speed using all available CPU cores to find addresses matching a desired prefix or suffix.
+A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Generates Ed25519 keypairs at maximum speed using all available CPU cores to find addresses matching a desired prefix, suffix, substring, or any combination.
 
 ![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange?logo=rust)
 ![License](https://img.shields.io/badge/License-MIT-blue)
@@ -12,9 +12,12 @@ A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Ge
 - 🧵 **Multithreaded** – automatically uses all CPU cores via [Rayon](https://github.com/rayon-rs/rayon)
 - 🔐 **Correct XRPL derivation** – standard 16-byte entropy → SHA-512-Half → Ed25519 path
 - 🔑 **Importable seeds** – sEd... output works directly in XUMM/Xaman, Ledger, and all XRPL wallets
-- 🎯 **Prefix & suffix matching** – find `rYourName...` or `r...XRP`
+- 🎯 **Prefix, suffix & contains** – find `rYourName...`, `r...XRP`, or `r...Ninja...`
+- 🔗 **Combinable filters** – use `--prefix` and `--suffix` together for `rBob...XRP`
+- 🔢 **Multiple results** – `--count N` finds N matching addresses in one run
 - 🔡 **Case-insensitive mode** – match regardless of capitalization
 - 📊 **Live progress** – real-time speed and ETA display
+- ⛔ **Graceful Ctrl+C** – interrupt anytime and see partial results
 - 🔒 **Fully offline** – no network connection needed, keys never leave your machine
 - 🪟 **Cross-platform** – works on Windows, Linux, and macOS
 
@@ -93,8 +96,17 @@ xrpl-vanity --prefix Bob
 # Find an address ending with ...XRP
 xrpl-vanity --suffix XRP
 
+# Find an address containing "Ninja" anywhere
+xrpl-vanity --contains Ninja
+
+# Combine prefix and suffix: rBob...XRP
+xrpl-vanity --prefix Bob --suffix XRP
+
 # Case-insensitive search
 xrpl-vanity --prefix bob -i
+
+# Find 5 matching addresses
+xrpl-vanity --prefix X --count 5
 
 # Limit to 8 threads
 xrpl-vanity --prefix Cool --threads 8
@@ -106,34 +118,34 @@ xrpl-vanity --prefix Hello --progress-every-million 5
 ### Example Output
 
 ```
-╔════════════════════════════════════════════════════════════════════════════════════════╗
-║  ⚡ XRPL Vanity Wallet Generator v2.0                                                ║
-╠════════════════════════════════════════════════════════════════════════════════════════╣
-║  Mode:              prefix "Bob"                                                      ║
-║  Case-insensitive:  No                                                                ║
-║  Threads:           16                                                                ║
-║  Avg. attempts:     ~195.1K                                                           ║
-╚════════════════════════════════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════════════════════════╗
+║  XRPL Vanity Wallet Generator v2.0                                                 ║
+╠════════════════════════════════════════════════════════════════════════════════════╣
+║  Mode:             prefix "Bob"                                                    ║
+║  Case-insensitive: No                                                              ║
+║  Threads:          16                                                              ║
+║  Avg. attempts:    ~195.1K per match                                               ║
+╚════════════════════════════════════════════════════════════════════════════════════╝
 
-╔════════════════════════════════════════════════════════════════════════════════════════╗
-║  ✅ FOUND!                                                                            ║
-╠════════════════════════════════════════════════════════════════════════════════════════╣
-║                                                                                        ║
-║  Address:          rBobK8q2F7TVr4pn9jLcE6MxB8a7VfJqHN                                 ║
-║  Secret (hex):     a3f182...full 64 chars...b72e                                       ║
-║  Seed:             sEdV...                                                             ║
-║                                                                                        ║
-╠════════════════════════════════════════════════════════════════════════════════════════╣
-║  Attempts:         83.2K                                                               ║
-║  Duration:         0.05s                                                               ║
-║  Speed:            1.66M/sec                                                           ║
-╠════════════════════════════════════════════════════════════════════════════════════════╣
-║                                                                                        ║
-║  ⚠️  IMPORTANT: Store your secret key / seed securely!                                 ║
-║     Anyone with the seed controls the wallet.                                          ║
-║     Clear this terminal after noting it down.                                          ║
-║                                                                                        ║
-╚════════════════════════════════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════════════════════════╗
+║  FOUND!                                                                            ║
+╠════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                    ║
+║  Address:          rBobK8q2F7TVr4pn9jLcE6MxB8a7VfJqHN                              ║
+║  Secret (hex):     a3f182...full 64 chars...b72e                                   ║
+║  Seed:             sEdV...                                                         ║
+║                                                                                    ║
+╠════════════════════════════════════════════════════════════════════════════════════╣
+║  Attempts:         83.2K                                                           ║
+║  Duration:         49.72ms                                                         ║
+║  Speed:            1.66M/sec                                                       ║
+╠════════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                    ║
+║  IMPORTANT: Store your secret key / seed securely!                                 ║
+║  Anyone with the seed controls the wallet.                                         ║
+║  Clear this terminal after noting it down.                                         ║
+║                                                                                    ║
+╚════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
 ## Command-Line Options
@@ -142,10 +154,14 @@ xrpl-vanity --prefix Hello --progress-every-million 5
 |--------|-------|-------------|
 | `--prefix <PATTERN>` | `-p` | Desired prefix after the leading `r` |
 | `--suffix <PATTERN>` | `-s` | Desired suffix at the end of the address |
+| `--contains <PATTERN>` | `-c` | Desired substring anywhere in the address |
+| `--count <N>` | `-n` | Number of matching addresses to find (default: 1) |
 | `--case-insensitive` | `-i` | Match regardless of upper/lower case |
 | `--threads <N>` | `-t` | Number of threads (default: all CPU cores) |
 | `--progress-every-million <N>` | | Progress update interval in millions (default: 10) |
 | `--help` | `-h` | Show help |
+
+`--prefix`, `--suffix`, and `--contains` can be freely combined. At least one must be specified.
 
 ## Valid Characters
 
@@ -168,8 +184,8 @@ XRPL Ed25519 key derivation follows the standard ledger path:
 4. **Prefix** the public key with `0xED` (33 bytes) — XRPL Ed25519 marker
 5. **Hash**: `SHA-256` → `RIPEMD-160` → 20-byte Account ID
 6. **Encode** with Base58Check (XRPL alphabet, `0x00` prefix) → `r...` address
-7. **Check** if the address matches the desired pattern
-8. **Repeat** across all CPU cores until a match is found
+7. **Check** if the address matches the desired pattern (prefix, suffix, contains, or any combination)
+8. **Repeat** across all CPU cores until the requested number of matches is found
 
 ```
 Random Entropy (16 bytes)
