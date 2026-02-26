@@ -72,7 +72,7 @@ pub fn build_payload(account_id: &[u8; 20]) -> [u8; 25] {
 }
 
 /// Full Base58Check encoding of a 25-byte payload into an XRPL address.
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)] // used in tests
 pub fn encode_address(payload: &[u8; 25]) -> String {
     bs58::encode(payload)
         .with_alphabet(&*XRPL_BS58_ALPHABET)
@@ -81,7 +81,7 @@ pub fn encode_address(payload: &[u8; 25]) -> String {
 
 /// Generates an XRPL address from 16-byte entropy.
 /// Returns (SigningKey, address_string).
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)] // used in tests
 pub fn entropy_to_address(entropy: &[u8; 16]) -> (SigningKey, String) {
     let private_key = entropy_to_private_key(entropy);
     let signing_key = SigningKey::from_bytes(&private_key);
