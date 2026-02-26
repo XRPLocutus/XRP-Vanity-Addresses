@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-02-26
+
+### Added
+- `--contains` (`-c`) flag — match a substring anywhere in the address
+- `--count` (`-n`) flag — find multiple matching addresses in one run
+- Combined filters — `--prefix`, `--suffix`, and `--contains` can now be used together freely
+- Graceful Ctrl+C handling — displays partial results when interrupted
+
+### Changed
+- `--prefix` and `--suffix` are no longer mutually exclusive; combine them for patterns like `rBob...XRP`
+- Replaced `num_cpus` crate with `std::thread::available_parallelism()` (one fewer dependency)
+- Search loop uses `for_each` with shared result collection instead of `find_map_any`
+- Done-flag check reduced from every iteration to every 256 iterations (less atomic contention)
+- `main()` returns `Result<()>` via `anyhow` instead of calling `process::exit`
+
+### Code Quality
+- Split `main.rs` into modules: `crypto.rs`, `validation.rs`, `display.rs`
+
 ## [2.0.0] - 2026-02-26
 
 ### Security Fixes
