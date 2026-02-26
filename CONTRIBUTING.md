@@ -38,7 +38,7 @@ cargo run --release -- --prefix Test
 
 ## Ideas for Contributions
 
-- **Performance improvements** — faster hashing, SIMD optimizations, early rejection
+- **Performance improvements** — SIMD batch hashing, early-exit Base58 encoding
 - **GPU support** — CUDA/OpenCL kernel for Ed25519 + SHA-256 + RIPEMD-160
 - **Regex matching** — allow flexible pattern matching beyond prefix/suffix
 - **Output formats** — JSON export, QR code generation

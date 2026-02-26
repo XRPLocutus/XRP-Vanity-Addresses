@@ -2,10 +2,6 @@
 /target/
 **/*.rs.bk
 
-# Cargo lock (include for binaries, exclude for libraries)
-# Since this is a binary, we include Cargo.lock
-# Cargo.lock
-
 # IDE files
 .idea/
 .vscode/
