@@ -54,17 +54,7 @@ static constexpr uint64_t MASK51 = (1ULL << 51) - 1;
 
 __device__ __forceinline__
 void fe25519_from_bytes(fe25519* r, const uint8_t s[32]) {
-    uint64_t t0 = uint64_t(s[0])       | (uint64_t(s[1]) << 8) | (uint64_t(s[2]) << 16) |
-                  (uint64_t(s[3]) << 24) | (uint64_t(s[4]) << 32) | (uint64_t(s[5]) << 40) |
-                  ((uint64_t(s[6]) & 0x07) << 48);
-    uint64_t t1 = (uint64_t(s[6]) >> 3) | (uint64_t(s[7]) << 5)  | (uint64_t(s[8]) << 13) |
-                  (uint64_t(s[9]) << 21) | (uint64_t(s[10]) << 29) | (uint64_t(s[11]) << 37) |
-                  ((uint64_t(s[12]) & 0x3f) << 45);
-    uint64_t t2 = (uint64_t(s[12]) >> 6) | (uint64_t(s[13]) << 2)  | (uint64_t(s[14]) << 10) |
-                  (uint64_t(s[15]) << 18) | (uint64_t(s[16]) << 26) | (uint64_t(s[17]) << 34) |
-                  ((uint64_t(s[18]) & 0x01) << 42) | (uint64_t(s[19]) << 43);
-    // Simpler: just unpack from a 256-bit little-endian integer
-    // Actually let's use a cleaner approach
+    // Unpack 32 bytes as a 256-bit little-endian integer into 4 x uint64_t
     uint64_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
     for (int i = 0; i < 8; i++) {
         w0 |= uint64_t(s[i])    << (i * 8);
@@ -242,11 +232,7 @@ __device__ void fe25519_sq(fe25519* r, const fe25519* a) {
 
     uint64_t a0_2 = av[0] * 2;
     uint64_t a1_2 = av[1] * 2;
-    uint64_t a2_2 = av[2] * 2;
-    uint64_t a3_2 = av[3] * 2;
 
-    uint64_t a1_38 = av[1] * 38;
-    uint64_t a2_38 = av[2] * 38;
     uint64_t a3_38 = av[3] * 38;
     uint64_t a4_19 = av[4] * 19;
     uint64_t a4_38 = a4_19 * 2;

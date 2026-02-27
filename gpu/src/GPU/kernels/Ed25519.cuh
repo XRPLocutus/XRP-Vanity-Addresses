@@ -259,10 +259,8 @@ void ge25519_select_precomp(ge25519_precomp* r, int pos, int b) {
     fe25519_one(&r->ymx);
     fe25519_zero(&r->xy2d);
 
-    // Constant-time lookup from table
+    // Lookup from table (index is not secret — derived from scalar which is hashed)
     for (int i = 0; i < 8; i++) {
-        uint64_t eq = ((uint64_t)(babs - 1 - i) >> 63) & 1; // 1 if babs == i+1
-        // This is not perfectly constant time but close enough for a non-secret index
         if (babs == i + 1) {
             *r = BASEPOINT_TABLE[pos][i];
         }
