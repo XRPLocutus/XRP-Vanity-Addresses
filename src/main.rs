@@ -1,5 +1,5 @@
 // ============================================================================
-//  XRPL Vanity Wallet Address Generator v2.2
+//  XRPL Vanity Wallet Address Generator v2.3
 // ============================================================================
 
 mod crypto;
@@ -31,7 +31,7 @@ use validation::validate_vanity_chars;
 #[derive(Parser, Debug)]
 #[command(name = "xrpl-vanity")]
 #[command(version)]
-#[command(about = "High-performance XRPL vanity wallet address generator v2.2")]
+#[command(about = "High-performance XRPL vanity wallet address generator v2.3")]
 #[command(long_about = "Generates Ed25519 keypairs across all CPU cores to find \
     XRPL addresses matching a desired pattern.\n\n\
     Examples:\n  \
@@ -142,7 +142,7 @@ fn main() -> Result<()> {
     // --- Print banner ---
     println!();
     top();
-    title("XRPL Vanity Wallet Generator v2.2");
+    title("XRPL Vanity Wallet Generator v2.3");
     rule();
     line("Mode:", &mode_desc);
     line(
@@ -191,13 +191,22 @@ fn main() -> Result<()> {
         let mut local_count: u64 = 0;
         let mut addr_buf = [0u8; 50];
 
+        // Batch RNG: pre-generate 4096 bytes (256 x 16-byte entropies) at once
+        let mut rng_buf = Zeroizing::new([0u8; 4096]);
+        let mut rng_pos: usize = 4096; // force initial fill
+
         loop {
-            // Check done flag every 256 iterations
-            if local_count & 0xFF == 0 && local_count > 0 && done.load(Ordering::Relaxed) {
+            // Check done flag every 1024 iterations
+            if local_count & 0x3FF == 0 && local_count > 0 && done.load(Ordering::Relaxed) {
                 break;
             }
 
-            rng.fill_bytes(&mut *entropy);
+            if rng_pos >= 4096 {
+                rng.fill_bytes(&mut *rng_buf);
+                rng_pos = 0;
+            }
+            entropy.copy_from_slice(&rng_buf[rng_pos..rng_pos + 16]);
+            rng_pos += 16;
 
             let private_key = entropy_to_private_key(&entropy);
             let signing_key = SigningKey::from_bytes(&private_key);
@@ -214,10 +223,10 @@ fn main() -> Result<()> {
 
             local_count += 1;
 
-            // Progress reporting every 65536 iterations
-            if local_count & 0xFFFF == 0 {
-                let total = counter.fetch_add(65_536, Ordering::Relaxed) + 65_536;
-                if total % progress_interval < 65_536 {
+            // Progress reporting every 262144 iterations
+            if local_count & 0x3FFFF == 0 {
+                let total = counter.fetch_add(262_144, Ordering::Relaxed) + 262_144;
+                if total % progress_interval < 262_144 {
                     let elapsed = start.elapsed().as_secs_f64();
                     let rate = total as f64 / elapsed;
                     let eta_secs =
@@ -291,7 +300,7 @@ fn main() -> Result<()> {
         }
 
         // Flush remaining local iterations to global counter
-        counter.fetch_add(local_count & 0xFFFF, Ordering::Relaxed);
+        counter.fetch_add(local_count & 0x3FFFF, Ordering::Relaxed);
     });
 
     // --- Display results ---
