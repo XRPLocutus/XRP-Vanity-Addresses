@@ -1,6 +1,6 @@
 [package]
 name = "xrpl-vanity"
-version = "2.2.0"
+version = "2.2.1"
 edition = "2021"
 authors = ["XRPLocutus <XRPLocutus@protonmail.com>"]
 description = "High-performance XRPL vanity wallet address generator using Ed25519"
