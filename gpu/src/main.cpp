@@ -4,6 +4,10 @@
 #include <csignal>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 // ─────────────────────────────────────────────────────────────
 // Global Vanity pointer for signal handler
 // ─────────────────────────────────────────────────────────────
@@ -60,6 +64,15 @@ static bool match_arg(const char* arg, const char* short_name, const char* long_
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    // Enable UTF-8 output and ANSI escape sequences for box-drawing characters
+    SetConsoleOutputCP(65001);
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    GetConsoleMode(hOut, &mode);
+    SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
+
     VanityConfig config;
 
     // Parse arguments

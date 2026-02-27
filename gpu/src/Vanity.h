@@ -49,7 +49,7 @@ private:
     std::string get_pattern_string() const;
 
     // Display progress
-    void print_progress(uint64_t checked, double elapsed);
+    void print_progress(uint64_t checked, double elapsed, uint64_t avg_est);
 
     // Display a found result
     void print_result(const VanityResult& result, int index);

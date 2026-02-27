@@ -438,7 +438,6 @@ std::string CPUVerify::hex_encode(const uint8_t* data, int len) {
 }
 
 bool CPUVerify::run_kat() {
-    printf("Running Known-Answer Tests (KAT)...\n");
 
     // KAT vectors generated from Rust v2.3 reference (src/crypto.rs)
     struct KATVector {
@@ -485,7 +484,6 @@ bool CPUVerify::run_kat() {
 
     for (int v = 0; v < num_vectors; v++) {
         const KATVector& kat = vectors[v];
-        printf("  KAT vector %d: ", v);
 
         CPUResult cpu = derive(kat.entropy);
 
@@ -534,13 +532,10 @@ bool CPUVerify::run_kat() {
             continue;
         }
 
-        printf("OK (address=%s, seed=%s)\n", cpu.address, cpu.seed);
     }
 
-    if (all_ok) {
-        printf("All %d KAT vectors passed.\n\n", num_vectors);
-    } else {
-        fprintf(stderr, "KAT FAILURES detected!\n\n");
+    if (!all_ok) {
+        fprintf(stderr, "KAT FAILURES detected!\n");
     }
     return all_ok;
 }

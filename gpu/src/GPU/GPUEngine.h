@@ -50,6 +50,8 @@ public:
     // GPU info
     std::string device_name() const { return device_name_; }
     int sm_count() const { return sm_count_; }
+    int compute_major() const { return compute_major_; }
+    int compute_minor() const { return compute_minor_; }
     int grid_blocks_count() const { return grid_blocks_; }
     int block_threads_count() const { return block_threads_; }
 
@@ -61,6 +63,8 @@ private:
 
     std::string device_name_;
     int sm_count_;
+    int compute_major_;
+    int compute_minor_;
 
     // Device memory pointers (opaque — only used in .cu file)
     void* d_seed_;

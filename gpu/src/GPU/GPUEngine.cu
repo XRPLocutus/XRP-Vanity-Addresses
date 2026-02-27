@@ -32,6 +32,8 @@ GPUEngine::GPUEngine(int device_id, int grid_blocks, int block_threads)
     , block_threads_(block_threads)
     , max_results_(256)
     , sm_count_(0)
+    , compute_major_(0)
+    , compute_minor_(0)
     , d_seed_(nullptr)
     , d_params_(nullptr)
     , d_results_(nullptr)
@@ -70,16 +72,12 @@ bool GPUEngine::init() {
     CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id_));
     device_name_ = prop.name;
     sm_count_ = prop.multiProcessorCount;
-
-    printf("GPU %d: %s (%d SMs, CC %d.%d)\n",
-           device_id_, prop.name, sm_count_, prop.major, prop.minor);
+    compute_major_ = prop.major;
+    compute_minor_ = prop.minor;
 
     if (grid_blocks_ <= 0) {
         grid_blocks_ = sm_count_;
     }
-
-    printf("Grid: %d blocks x %d threads = %d concurrent threads\n",
-           grid_blocks_, block_threads_, grid_blocks_ * block_threads_);
 
     // Allocate device memory
     CUDA_CHECK(cudaMalloc(&d_seed_,           8 * sizeof(uint32_t)));

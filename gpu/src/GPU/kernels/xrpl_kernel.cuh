@@ -56,7 +56,7 @@ __global__ void xrpl_vanity_kernel(
 
     for (int batch = 0; batch < ITERATIONS_PER_THREAD; batch++) {
         // Check if we've found enough results
-        if (*found_count >= max_results) return;
+        if (*found_count >= max_results) break;
 
         uint64_t iter = start_iteration + uint64_t(batch) * grid_size + tid;
 
@@ -115,7 +115,7 @@ __global__ void xrpl_vanity_kernel(
     }
 
     // Update global progress counter (one atomic per thread, not per iteration)
-    atomicAdd(total_checked, uint64_t(ITERATIONS_PER_THREAD));
+    atomicAdd((unsigned long long*)total_checked, (unsigned long long)ITERATIONS_PER_THREAD);
 }
 
 // ─────────────────────────────────────────────────────────────

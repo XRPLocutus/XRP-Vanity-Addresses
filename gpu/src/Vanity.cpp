@@ -1,5 +1,6 @@
 #include "Vanity.h"
 #include "utils/Timer.h"
+#include "utils/Display.h"
 #include <cstdio>
 #include <cstring>
 #include <random>
@@ -24,7 +25,6 @@ static bool is_valid_xrpl_char(char c) {
 }
 
 static bool is_valid_xrpl_char_ci(char c) {
-    // Case-insensitive: check both cases
     for (const char* p = XRPL_ALPHABET; *p; p++) {
         if (tolower(*p) == tolower(c)) return true;
     }
@@ -67,7 +67,6 @@ std::string Vanity::get_pattern_string() const {
 
 void Vanity::generate_seed(uint32_t seed[8]) {
 #ifdef _WIN32
-    // Use Windows BCryptGenRandom (CSPRNG)
     NTSTATUS status = BCryptGenRandom(
         NULL, (PUCHAR)seed, 32,
         BCRYPT_USE_SYSTEM_PREFERRED_RNG);
@@ -76,7 +75,6 @@ void Vanity::generate_seed(uint32_t seed[8]) {
         exit(1);
     }
 #else
-    // Use /dev/urandom on Linux/macOS
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd < 0) {
         fprintf(stderr, "ERROR: Cannot open /dev/urandom\n");
@@ -90,7 +88,6 @@ void Vanity::generate_seed(uint32_t seed[8]) {
     }
 #endif
 
-    // Sanity check: seed must not be all zeros
     bool all_zero = true;
     for (int i = 0; i < 8; i++) {
         if (seed[i] != 0) { all_zero = false; break; }
@@ -105,15 +102,25 @@ void Vanity::generate_seed(uint32_t seed[8]) {
 // Progress display
 // ─────────────────────────────────────────────────────────────
 
-void Vanity::print_progress(uint64_t checked, double elapsed) {
+void Vanity::print_progress(uint64_t checked, double elapsed, uint64_t avg_est) {
     double rate = (elapsed > 0) ? checked / elapsed : 0;
 
     std::string checked_str = Timer::format_count(checked);
     std::string rate_str = Timer::format_count((uint64_t)rate);
-    std::string time_str = Timer::format_duration(elapsed);
 
-    fprintf(stderr, "\r  Searched %s addresses (%s/sec) in %s",
-            checked_str.c_str(), rate_str.c_str(), time_str.c_str());
+    std::string eta_str;
+    if (rate > 0 && avg_est > 0) {
+        double remaining = ((double)avg_est * config_.count - (double)checked) / rate;
+        if (remaining > 0)
+            eta_str = Timer::format_duration(remaining);
+        else
+            eta_str = "any moment";
+    } else {
+        eta_str = "calculating...";
+    }
+
+    fprintf(stderr, "\r  > %s attempts | %s/s | est. remaining: %s          ",
+            checked_str.c_str(), rate_str.c_str(), eta_str.c_str());
     fflush(stderr);
 }
 
@@ -122,21 +129,43 @@ void Vanity::print_progress(uint64_t checked, double elapsed) {
 // ─────────────────────────────────────────────────────────────
 
 void Vanity::print_result(const VanityResult& result, int index) {
-    printf("\n");
-    printf("  ╔════════════════════════════════════════════════════════════════════════════════╗\n");
-    printf("  ║  XRPL Vanity Address Found (#%d)                                              ║\n", index + 1);
-    printf("  ╠════════════════════════════════════════════════════════════════════════════════╣\n");
-    printf("  ║  Address:  %-67s ║\n", result.address.c_str());
-    printf("  ║  Seed:     %-67s ║\n", result.seed.c_str());
-    printf("  ║  Secret:   %-67s ║\n", result.hex_secret.c_str());
-    printf("  ╠════════════════════════════════════════════════════════════════════════════════╣\n");
+    // Clear progress line
+    fprintf(stderr, "\r%*s\r", 90, "");
 
-    std::string stats = "Found in " + Timer::format_count(result.attempts) +
-                        " attempts (" + Timer::format_duration(result.elapsed_sec) + ")";
-    printf("  ║  %-76s ║\n", stats.c_str());
-    printf("  ╠════════════════════════════════════════════════════════════════════════════════╣\n");
-    printf("  ║  WARNING: Save your seed/secret securely. It will NOT be shown again.        ║\n");
-    printf("  ╚════════════════════════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    Display::top();
+
+    if (config_.count == 1) {
+        Display::title("FOUND!");
+    } else {
+        char title_buf[64];
+        snprintf(title_buf, sizeof(title_buf), "FOUND #%d", index + 1);
+        Display::title(title_buf);
+    }
+
+    Display::rule();
+    Display::empty();
+    Display::line("Address:", result.address.c_str());
+    Display::line("Seed:", result.seed.c_str());
+    Display::line("Secret (hex):", result.hex_secret.c_str());
+    Display::empty();
+    Display::rule();
+
+    Display::line("Attempts:", Timer::format_count(result.attempts).c_str());
+    Display::line("Duration:", Timer::format_duration(result.elapsed_sec).c_str());
+
+    double rate = (result.elapsed_sec > 0) ?
+        result.attempts / result.elapsed_sec : 0;
+    char speed[64];
+    snprintf(speed, sizeof(speed), "%s/sec", Timer::format_count((uint64_t)rate).c_str());
+    Display::line("Speed:", speed);
+
+    Display::rule();
+    Display::empty();
+    Display::title("IMPORTANT: Save your seed/secret securely!");
+    Display::title("Anyone with the seed controls the wallet.");
+    Display::empty();
+    Display::bottom();
     printf("\n");
 }
 
@@ -169,16 +198,7 @@ std::vector<VanityResult> Vanity::run() {
 
     int pattern_type = get_pattern_type();
 
-    printf("\n");
-    printf("  XRPL Vanity Address Generator v3.0 (GPU)\n");
-    printf("  ─────────────────────────────────────────\n");
-    printf("  Pattern:   %s (%s%s)\n", pattern.c_str(),
-           pattern_type == 0 ? "prefix" : pattern_type == 1 ? "suffix" : "contains",
-           config_.case_insensitive ? ", case-insensitive" : "");
-    printf("  Target:    %d address%s\n", config_.count, config_.count > 1 ? "es" : "");
-    printf("\n");
-
-    // Run CPU self-tests
+    // CPU KAT — silent on success
     if (!CPUVerify::run_kat()) {
         fprintf(stderr, "ERROR: CPU self-tests failed. Aborting.\n");
         return {};
@@ -190,7 +210,7 @@ std::vector<VanityResult> Vanity::run() {
         return {};
     }
 
-    // Initialize GPU
+    // Initialize GPU — silent
     int gpu_id = config_.gpu_id >= 0 ? config_.gpu_id : 0;
     GPUEngine gpu(gpu_id, config_.grid_blocks, config_.block_threads);
 
@@ -199,21 +219,62 @@ std::vector<VanityResult> Vanity::run() {
         return {};
     }
 
-    // GPU KAT: derive a known entropy on GPU and verify against CPU
+    // GPU KAT — silent on success
     {
-        uint8_t kat_entropy[16] = {0}; // all-zeros = KAT vector 0
+        uint8_t kat_entropy[16] = {0};
         HostResult gpu_kat = gpu.derive_single(kat_entropy);
         CPUResult  cpu_kat = CPUVerify::derive(kat_entropy);
 
         if (strcmp(gpu_kat.address, cpu_kat.address) != 0) {
-            fprintf(stderr, "\n  GPU KAT FAILED:\n");
-            fprintf(stderr, "    GPU address: %s\n", gpu_kat.address);
-            fprintf(stderr, "    CPU address: %s\n", cpu_kat.address);
-            fprintf(stderr, "  GPU and CPU produce different addresses. Aborting.\n");
+            fprintf(stderr, "FATAL: GPU/CPU self-test mismatch!\n");
+            fprintf(stderr, "  GPU: %s\n  CPU: %s\n", gpu_kat.address, cpu_kat.address);
             return {};
         }
-        printf("  GPU KAT: OK (%s)\n", gpu_kat.address);
     }
+
+    // Banner
+    printf("\n");
+    Display::top();
+    Display::title("XRPL Vanity Address Generator v3.0 (GPU)");
+    Display::rule();
+
+    char pat_desc[128];
+    snprintf(pat_desc, sizeof(pat_desc), "%s (%s%s)", pattern.c_str(),
+        pattern_type == 0 ? "prefix" : pattern_type == 1 ? "suffix" : "contains",
+        config_.case_insensitive ? ", case-insensitive" : "");
+    Display::line("Pattern:", pat_desc);
+
+    Display::line("Case-sensitive:", config_.case_insensitive ? "No" : "Yes");
+
+    char target_desc[64];
+    snprintf(target_desc, sizeof(target_desc), "%d address%s",
+        config_.count, config_.count > 1 ? "es" : "");
+    Display::line("Target:", target_desc);
+
+    uint64_t avg_est = Display::estimate_attempts((int)pattern.size());
+    char est_desc[64];
+    snprintf(est_desc, sizeof(est_desc), "~%s per match",
+        Timer::format_count(avg_est).c_str());
+    Display::line("Avg. attempts:", est_desc);
+
+    Display::rule();
+
+    char gpu_desc[128];
+    snprintf(gpu_desc, sizeof(gpu_desc), "%s (%d SMs, CC %d.%d)",
+        gpu.device_name().c_str(), gpu.sm_count(),
+        gpu.compute_major(), gpu.compute_minor());
+    Display::line("GPU:", gpu_desc);
+
+    int concurrent = gpu.grid_blocks_count() * gpu.block_threads_count();
+    char grid_desc[128];
+    snprintf(grid_desc, sizeof(grid_desc), "%d blocks x %d threads (%s concurrent)",
+        gpu.grid_blocks_count(), gpu.block_threads_count(),
+        Timer::format_count(concurrent).c_str());
+    Display::line("Grid:", grid_desc);
+
+    Display::line("Self-test:", "OK");
+    Display::bottom();
+    printf("\n");
 
     // Set search parameters
     gpu.set_pattern(pattern, pattern_type, config_.case_insensitive);
@@ -223,27 +284,23 @@ std::vector<VanityResult> Vanity::run() {
     generate_seed(seed);
     gpu.set_seed(seed);
 
-    printf("  Searching on %s (%d SMs)...\n\n", gpu.device_name().c_str(), gpu.sm_count());
-
     // Search loop
     Timer timer;
     uint64_t batch_num = 0;
     uint64_t grid_size = uint64_t(gpu.grid_blocks_count()) * gpu.block_threads_count();
-    int gpu_results_processed = 0;  // Track how many GPU results we've already seen
+    int gpu_results_processed = 0;
 
     while (!should_stop_.load(std::memory_order_relaxed)) {
         uint64_t start_iter = batch_num * grid_size * ITERATIONS_PER_THREAD;
         int new_found = gpu.search_batch(start_iter);
 
-        // Update progress
         uint64_t total = gpu.get_total_checked();
         double elapsed = timer.elapsed_sec();
 
         if (batch_num % 10 == 0) {
-            print_progress(total, elapsed);
+            print_progress(total, elapsed, avg_est);
         }
 
-        // Process any new results
         if (new_found > 0) {
             auto gpu_results = gpu.get_results();
             for (int ri = gpu_results_processed; ri < (int)gpu_results.size(); ri++) {
@@ -252,14 +309,12 @@ std::vector<VanityResult> Vanity::run() {
 
                 if ((int)results_.size() >= config_.count) break;
 
-                // CPU-side verification
                 bool verified = CPUVerify::verify(gr.entropy, gr.address);
                 if (!verified) {
                     fprintf(stderr, "\n  WARNING: GPU/CPU mismatch (skipping)\n");
                     continue;
                 }
 
-                // Verified! Build final result
                 VanityResult vr;
                 vr.address = gr.address;
                 vr.seed = CPUVerify::entropy_to_seed(gr.entropy);
@@ -279,23 +334,17 @@ std::vector<VanityResult> Vanity::run() {
 
         batch_num++;
 
-        // Check if we've found enough
         if ((int)results_.size() >= config_.count) break;
     }
 
-    // Final progress
-    uint64_t total = gpu.get_total_checked();
-    double elapsed = timer.elapsed_sec();
-    fprintf(stderr, "\r  Total: %s addresses checked in %s\n",
-            Timer::format_count(total).c_str(),
-            Timer::format_duration(elapsed).c_str());
+    // Clear progress line
+    fprintf(stderr, "\r%*s\r", 90, "");
 
     // Clear screen if requested
     if (config_.clear_screen && !results_.empty()) {
         printf("\nPress Enter to clear screen and scrollback...");
         fflush(stdout);
         getchar();
-        // ANSI: clear screen + clear scrollback + move cursor home
         printf("\033[2J\033[3J\033[H");
         fflush(stdout);
     }
