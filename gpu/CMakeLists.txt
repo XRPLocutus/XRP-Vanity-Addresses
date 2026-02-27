@@ -28,4 +28,9 @@ add_executable(xrpl-vanity-gpu
     src/CPU/Ed25519_ref10.cpp
 )
 
+# Track .cuh kernel headers so modifying them triggers recompilation of GPUEngine.cu
+set_source_files_properties(src/GPU/GPUEngine.cu PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/Curve25519.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/Ed25519.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/SHA512.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/SHA256.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/RIPEMD160.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/Base58.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/Philox.cuh;${CMAKE_CURRENT_SOURCE_DIR}/src/GPU/kernels/xrpl_kernel.cuh"
+)
+
 target_include_directories(xrpl-vanity-gpu PRIVATE src/)

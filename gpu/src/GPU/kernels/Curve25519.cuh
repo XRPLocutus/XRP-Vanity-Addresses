@@ -19,27 +19,23 @@ struct uint128_t {
 __device__ __forceinline__
 uint128_t mul64(uint64_t a, uint64_t b) {
     uint128_t r;
-    asm("mul.lo.u64 %0, %2, %3;\n\t"
-        "mul.hi.u64 %1, %2, %3;"
-        : "=l"(r.lo), "=l"(r.hi)
-        : "l"(a), "l"(b));
+    r.lo = a * b;
+    r.hi = __umul64hi(a, b);
     return r;
 }
 
 __device__ __forceinline__
 void add128(uint128_t& acc, uint128_t val) {
-    asm("add.cc.u64  %0, %2, %4;\n\t"
-        "addc.u64    %1, %3, %5;"
-        : "=l"(acc.lo), "=l"(acc.hi)
-        : "l"(acc.lo), "l"(acc.hi), "l"(val.lo), "l"(val.hi));
+    uint64_t old_lo = acc.lo;
+    acc.lo += val.lo;
+    acc.hi += val.hi + (acc.lo < old_lo ? 1ULL : 0ULL);
 }
 
 __device__ __forceinline__
 void add128_u64(uint128_t& acc, uint64_t val) {
-    asm("add.cc.u64  %0, %2, %4;\n\t"
-        "addc.u64    %1, %3, 0;"
-        : "=l"(acc.lo), "=l"(acc.hi)
-        : "l"(acc.lo), "l"(acc.hi), "l"(val));
+    uint64_t old_lo = acc.lo;
+    acc.lo += val;
+    acc.hi += (acc.lo < old_lo ? 1ULL : 0ULL);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -200,22 +196,24 @@ __device__ void fe25519_mul(fe25519* r, const fe25519* a, const fe25519* b) {
     add128(t4, mul64(av[4], bv[0]));
 
     // Carry propagation (from 128-bit accumulators to 51-bit limbs)
+    // Must add carry to the FULL 128-bit accumulator, not just the low 64 bits,
+    // because t.lo + c can overflow 64 bits.
     r->v[0] = t0.lo & MASK51;
     uint64_t c = (t0.lo >> 51) | (t0.hi << 13);
 
-    t1.lo += c; // can't overflow: c < 2^77, t1 < 2^128
+    add128_u64(t1, c);
     r->v[1] = t1.lo & MASK51;
     c = (t1.lo >> 51) | (t1.hi << 13);
 
-    t2.lo += c;
+    add128_u64(t2, c);
     r->v[2] = t2.lo & MASK51;
     c = (t2.lo >> 51) | (t2.hi << 13);
 
-    t3.lo += c;
+    add128_u64(t3, c);
     r->v[3] = t3.lo & MASK51;
     c = (t3.lo >> 51) | (t3.hi << 13);
 
-    t4.lo += c;
+    add128_u64(t4, c);
     r->v[4] = t4.lo & MASK51;
     c = (t4.lo >> 51) | (t4.hi << 13);
 
@@ -262,23 +260,23 @@ __device__ void fe25519_sq(fe25519* r, const fe25519* a) {
     add128(t4, mul64(a1_2, av[3]));
     add128(t4, mul64(av[2], av[2]));
 
-    // Carry propagation (same as mul)
+    // Carry propagation (must use full 128-bit add for carry, same as mul)
     r->v[0] = t0.lo & MASK51;
     uint64_t c = (t0.lo >> 51) | (t0.hi << 13);
 
-    t1.lo += c;
+    add128_u64(t1, c);
     r->v[1] = t1.lo & MASK51;
     c = (t1.lo >> 51) | (t1.hi << 13);
 
-    t2.lo += c;
+    add128_u64(t2, c);
     r->v[2] = t2.lo & MASK51;
     c = (t2.lo >> 51) | (t2.hi << 13);
 
-    t3.lo += c;
+    add128_u64(t3, c);
     r->v[3] = t3.lo & MASK51;
     c = (t3.lo >> 51) | (t3.hi << 13);
 
-    t4.lo += c;
+    add128_u64(t4, c);
     r->v[4] = t4.lo & MASK51;
     c = (t4.lo >> 51) | (t4.hi << 13);
 

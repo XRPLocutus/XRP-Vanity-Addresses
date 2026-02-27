@@ -370,7 +370,9 @@ void cpu_ed25519_compute_basepoint_table(cpu_ge25519_precomp out[32][8]) {
             // precomp = (y+x, y-x, 2*d*x*y)
             fe ypx, ymx, xy2d, xy;
             fe_add(&ypx, &y, &x);
+            fe_carry(&ypx);  // reduce to canonical 51-bit limbs
             fe_sub(&ymx, &y, &x);
+            fe_carry(&ymx);  // reduce to canonical 51-bit limbs
             fe_mul(&xy, &x, &y);
             fe_mul(&xy2d, &xy, &ED_D2);
 
@@ -391,8 +393,10 @@ void cpu_ed25519_compute_basepoint_table(cpu_ge25519_precomp out[32][8]) {
             }
         }
 
-        // group_base *= 16 (double 4 times)
-        for (int d = 0; d < 4; d++) {
+        // group_base *= 256 (double 8 times)
+        // Each group covers 8 bits (2 radix-16 digits) of the scalar.
+        // TABLE[j] = multiples of B * 256^j, used by the ref10 two-pass algorithm.
+        for (int d = 0; d < 8; d++) {
             ge_p2 p2; p2.X = group_base.X; p2.Y = group_base.Y; p2.Z = group_base.Z;
             ge_p1p1 p1p1;
             ge_double(&p1p1, &p2);

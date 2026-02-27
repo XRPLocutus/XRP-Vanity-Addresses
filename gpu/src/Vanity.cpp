@@ -199,6 +199,22 @@ std::vector<VanityResult> Vanity::run() {
         return {};
     }
 
+    // GPU KAT: derive a known entropy on GPU and verify against CPU
+    {
+        uint8_t kat_entropy[16] = {0}; // all-zeros = KAT vector 0
+        HostResult gpu_kat = gpu.derive_single(kat_entropy);
+        CPUResult  cpu_kat = CPUVerify::derive(kat_entropy);
+
+        if (strcmp(gpu_kat.address, cpu_kat.address) != 0) {
+            fprintf(stderr, "\n  GPU KAT FAILED:\n");
+            fprintf(stderr, "    GPU address: %s\n", gpu_kat.address);
+            fprintf(stderr, "    CPU address: %s\n", cpu_kat.address);
+            fprintf(stderr, "  GPU and CPU produce different addresses. Aborting.\n");
+            return {};
+        }
+        printf("  GPU KAT: OK (%s)\n", gpu_kat.address);
+    }
+
     // Set search parameters
     gpu.set_pattern(pattern, pattern_type, config_.case_insensitive);
 
@@ -213,6 +229,7 @@ std::vector<VanityResult> Vanity::run() {
     Timer timer;
     uint64_t batch_num = 0;
     uint64_t grid_size = uint64_t(gpu.grid_blocks_count()) * gpu.block_threads_count();
+    int gpu_results_processed = 0;  // Track how many GPU results we've already seen
 
     while (!should_stop_.load(std::memory_order_relaxed)) {
         uint64_t start_iter = batch_num * grid_size * ITERATIONS_PER_THREAD;
@@ -229,15 +246,16 @@ std::vector<VanityResult> Vanity::run() {
         // Process any new results
         if (new_found > 0) {
             auto gpu_results = gpu.get_results();
-            for (const auto& gr : gpu_results) {
-                // Skip already-processed results
+            for (int ri = gpu_results_processed; ri < (int)gpu_results.size(); ri++) {
+                const auto& gr = gpu_results[ri];
+                gpu_results_processed = ri + 1;
+
                 if ((int)results_.size() >= config_.count) break;
 
                 // CPU-side verification
                 bool verified = CPUVerify::verify(gr.entropy, gr.address);
                 if (!verified) {
-                    fprintf(stderr, "\nWARNING: GPU/CPU mismatch! Discarding result.\n");
-                    fprintf(stderr, "  GPU address: %s\n", gr.address);
+                    fprintf(stderr, "\n  WARNING: GPU/CPU mismatch (skipping)\n");
                     continue;
                 }
 

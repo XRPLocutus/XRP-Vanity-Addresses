@@ -145,7 +145,8 @@ __device__ void ge25519_add_cached(ge25519_p1p1* r, const ge25519_p3* p, const g
     // p1p1 = (E, H, G, F') → p1p1_to_p3 produces (E*F', H*G, G*F', E*H)
 }
 
-// Subtraction: r = p - q
+// Subtraction: r = p - q (p3 + cached → p1p1)
+// Same as add_cached but with negated q: swap YpX/YmX and swap +/- for T2d term
 __device__ void ge25519_sub_cached(ge25519_p1p1* r, const ge25519_p3* p, const ge25519_cached* q) {
     fe25519 a, b;
 
@@ -157,15 +158,14 @@ __device__ void ge25519_sub_cached(ge25519_p1p1* r, const ge25519_p3* p, const g
     fe25519_mul(&r->Z, &p->Z, &q->Z);
     fe25519_add(&r->Z, &r->Z, &r->Z);
 
-    fe25519_sub(&r->X, &a, &b);
-    fe25519_add(&r->Y, &a, &b);
-    fe25519_sub(&a, &r->Z, &r->T);       // Negated: F - E swapped
-    fe25519_add(&b, &r->Z, &r->T);
+    fe25519_sub(&r->X, &a, &b);          // r->X = E
+    fe25519_add(&r->Y, &a, &b);          // r->Y = H
+    fe25519_sub(&a, &r->Z, &r->T);       // a = F (swapped from add: D - C instead of D + C)
+    fe25519_add(&b, &r->Z, &r->T);       // b = G (swapped from add: D + C instead of D - C)
 
-    fe25519_mul(&r->X, &r->X, &a);       // Swapped
-    fe25519_mul(&r->Y, &r->Y, &b);
-    fe25519_mul(&r->Z, &a, &b);
-    fe25519_mul(&r->T, &r->X, &r->Y);
+    fe25519_copy(&r->Z, &b);             // r->Z = G
+    fe25519_copy(&r->T, &a);             // r->T = F
+    // p1p1 = (E, H, G, F) → p1p1_to_p3 produces (E*F, H*G, G*F, E*H)
 }
 
 // Addition with precomputed point (for basepoint table)
@@ -266,52 +266,44 @@ void ge25519_select_precomp(ge25519_precomp* r, int pos, int b) {
     }
 }
 
-// Fixed-base scalar multiplication: result = scalar * B
-// Uses 4-bit windowed method with precomputed table
-// scalar is a 32-byte little-endian integer (Ed25519 private key, already clamped)
-__device__ void ed25519_scalarmult_base(ge25519_p3* result, const uint8_t scalar[32]) {
-    // Convert scalar to signed radix-16 digits
-    int8_t digits[64];
-    for (int i = 0; i < 32; i++) {
-        digits[2*i]     = (scalar[i] & 0x0F);
-        digits[2*i + 1] = ((scalar[i] >> 4) & 0x0F);
-    }
-    // Convert to signed representation: each digit in -8..7
-    int carry = 0;
-    for (int i = 0; i < 63; i++) {
-        digits[i] += carry;
-        carry = (digits[i] + 8) >> 4;
-        digits[i] -= carry << 4;
-    }
-    digits[63] += carry;
+// Ed25519 basepoint B (5x51-bit limbs)
+__device__ __constant__ fe25519 ED25519_BX = {{
+    1738742601995546ULL, 1146398526822698ULL,
+    2070867633025821ULL, 562264141797630ULL, 587772402128613ULL
+}};
+__device__ __constant__ fe25519 ED25519_BY = {{
+    1801439850948184ULL, 1351079888211148ULL,
+    450359962737049ULL, 900719925474099ULL, 1801439850948198ULL
+}};
 
-    // Process digits from most significant (63) to least (0),
-    // with 4 doublings between each digit.
-    ge25519_precomp t;
-    ge25519_p1p1 r_p1p1;
+// Simple double-and-add scalar multiplication: result = scalar * B
+// No precomputed table — uses basepoint directly.
+__device__ void ed25519_scalarmult_base(ge25519_p3* result, const uint8_t scalar[32]) {
+    // Set up basepoint
+    ge25519_p3 base;
+    fe25519_copy(&base.X, &ED25519_BX);
+    fe25519_copy(&base.Y, &ED25519_BY);
+    fe25519_one(&base.Z);
+    fe25519_mul(&base.T, &ED25519_BX, &ED25519_BY);
 
     ge25519_set_neutral(result);
 
-    // Process from digit 63 down to 0
-    for (int i = 63; i >= 0; i--) {
-        // Double 4 times (except for the first iteration)
-        if (i < 63) {
-            ge25519_p2 p2;
-            p2.X = result->X; p2.Y = result->Y; p2.Z = result->Z;
-            ge25519_double(&r_p1p1, &p2);
-            ge25519_p1p1_to_p2(&p2, &r_p1p1);
-            ge25519_double(&r_p1p1, &p2);
-            ge25519_p1p1_to_p2(&p2, &r_p1p1);
-            ge25519_double(&r_p1p1, &p2);
-            ge25519_p1p1_to_p2(&p2, &r_p1p1);
-            ge25519_double(&r_p1p1, &p2);
-            ge25519_p1p1_to_p3(result, &r_p1p1);
-        }
+    ge25519_cached bc;
+    ge25519_p3_to_cached(&bc, &base);
 
-        // Add the appropriate precomputed multiple
-        if (digits[i] != 0) {
-            ge25519_select_precomp(&t, i % 32, digits[i]);
-            ge25519_add_precomp(&r_p1p1, result, &t);
+    for (int i = 255; i >= 0; i--) {
+        // Double
+        ge25519_p2 p2;
+        p2.X = result->X; p2.Y = result->Y; p2.Z = result->Z;
+        ge25519_p1p1 r_p1p1;
+        ge25519_double(&r_p1p1, &p2);
+        ge25519_p1p1_to_p3(result, &r_p1p1);
+
+        // If bit is set, add basepoint
+        int byte_idx = i / 8;
+        int bit_idx = i % 8;
+        if ((scalar[byte_idx] >> bit_idx) & 1) {
+            ge25519_add_cached(&r_p1p1, result, &bc);
             ge25519_p1p1_to_p3(result, &r_p1p1);
         }
     }
