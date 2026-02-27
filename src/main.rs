@@ -1,5 +1,5 @@
 // ============================================================================
-//  XRPL Vanity Wallet Address Generator v2.0
+//  XRPL Vanity Wallet Address Generator v2.2
 // ============================================================================
 
 mod crypto;
@@ -31,7 +31,7 @@ use validation::validate_vanity_chars;
 #[derive(Parser, Debug)]
 #[command(name = "xrpl-vanity")]
 #[command(version)]
-#[command(about = "High-performance XRPL vanity wallet address generator v2.0")]
+#[command(about = "High-performance XRPL vanity wallet address generator v2.2")]
 #[command(long_about = "Generates Ed25519 keypairs across all CPU cores to find \
     XRPL addresses matching a desired pattern.\n\n\
     Examples:\n  \
@@ -142,7 +142,7 @@ fn main() -> Result<()> {
     // --- Print banner ---
     println!();
     top();
-    title("XRPL Vanity Wallet Generator v2.0");
+    title("XRPL Vanity Wallet Generator v2.2");
     rule();
     line("Mode:", &mode_desc);
     line(

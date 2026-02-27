@@ -1,4 +1,4 @@
-# ⚡ XRPL Vanity Address Generator v2.0
+# ⚡ XRPL Vanity Address Generator v2.2
 
 A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Generates Ed25519 keypairs at maximum speed using all available CPU cores to find addresses matching a desired prefix, suffix, substring, or any combination.
 
@@ -18,6 +18,8 @@ A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Ge
 - 🔡 **Case-insensitive mode** – match regardless of capitalization
 - 📊 **Live progress** – real-time speed and ETA display
 - ⛔ **Graceful Ctrl+C** – interrupt anytime and see partial results
+- 🧹 **Secret zeroization** – private keys wiped from memory on drop via [`zeroize`](https://crates.io/crates/zeroize)
+- 🖥️ **`--clear` flag** – clears screen and scrollback after you note down your keys
 - 🔒 **Fully offline** – no network connection needed, keys never leave your machine
 - 🪟 **Cross-platform** – works on Windows, Linux, and macOS
 
@@ -113,6 +115,9 @@ xrpl-vanity --prefix Cool --threads 8
 
 # Show progress every 5 million attempts
 xrpl-vanity --prefix Hello --progress-every-million 5
+
+# Auto-clear screen after noting down keys
+xrpl-vanity --prefix Bob --clear
 ```
 
 ### Example Output
@@ -159,6 +164,7 @@ xrpl-vanity --prefix Hello --progress-every-million 5
 | `--case-insensitive` | `-i` | Match regardless of upper/lower case |
 | `--threads <N>` | `-t` | Number of threads (default: all CPU cores) |
 | `--progress-every-million <N>` | | Progress update interval in millions (default: 10) |
+| `--clear` | | Clear screen and scrollback after displaying results |
 | `--help` | `-h` | Show help |
 
 `--prefix`, `--suffix`, and `--contains` can be freely combined. At least one must be specified.
@@ -205,11 +211,15 @@ The generated `sEd...` seed encodes the original 16-byte entropy and can be impo
 
 **No.** The entropy is generated from a cryptographically secure random source — identical to any standard wallet. The vanity generator simply discards keys whose addresses don't match your pattern. The key you keep is just as random and secure as any other.
 
+### Memory safety
+
+All secret material (private keys, entropy, seeds, hex-encoded keys) is wrapped in [`zeroize::Zeroizing`](https://crates.io/crates/zeroize) and wiped from memory as soon as it goes out of scope. The result buffer is explicitly cleared before program exit. Use `--clear` to also wipe the terminal scrollback.
+
 ### Best practices
 
 - **Generate offline** — this tool requires no network connection
 - **Never use online vanity generators** — they may retain your private key
-- **Clear your terminal** after noting down the secret key
+- **Use `--clear`** to wipe the screen and scrollback after noting down the secret key
 - **Store the secret key securely** — anyone with access to it controls the wallet
 - **Verify the full address** when transacting, not just the vanity portion
 

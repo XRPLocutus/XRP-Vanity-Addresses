@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-02-27
+
+### Security
+- **Secret zeroization** – all private keys, entropy, seeds, and hex-encoded secrets are wrapped in `zeroize::Zeroizing` and wiped from memory on drop
+- **Entropy source validation** – startup sanity check bails if the OS CSPRNG returns all zeros
+- **`--clear` flag** – clears the screen and terminal scrollback after the user has noted down their keys
+- **Mutex poisoning safety** – result lock uses `unwrap_or_else` to recover gracefully instead of panicking
+
+### Added
+- `--clear` flag — press Enter after noting your keys to clear screen and scrollback buffer
+- `zeroize` dependency for secure memory wiping
+
 ## [2.1.0] - 2026-02-26
 
 ### Added
