@@ -49,24 +49,6 @@ static constexpr uint64_t MASK51 = (1ULL << 51) - 1;
 // ─────────────────────────────────────────────────────────────
 
 __device__ __forceinline__
-void fe25519_from_bytes(fe25519* r, const uint8_t s[32]) {
-    // Unpack 32 bytes as a 256-bit little-endian integer into 4 x uint64_t
-    uint64_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
-    for (int i = 0; i < 8; i++) {
-        w0 |= uint64_t(s[i])    << (i * 8);
-        w1 |= uint64_t(s[i+8])  << (i * 8);
-        w2 |= uint64_t(s[i+16]) << (i * 8);
-        w3 |= uint64_t(s[i+24]) << (i * 8);
-    }
-    // Now split 256-bit (w3:w2:w1:w0) into 5x51-bit limbs
-    r->v[0] = w0 & MASK51;
-    r->v[1] = ((w0 >> 51) | (w1 << 13)) & MASK51;
-    r->v[2] = ((w1 >> 38) | (w2 << 26)) & MASK51;
-    r->v[3] = ((w2 >> 25) | (w3 << 39)) & MASK51;
-    r->v[4] = (w3 >> 12) & MASK51;
-}
-
-__device__ __forceinline__
 void fe25519_to_bytes(uint8_t s[32], const fe25519* f) {
     // First, fully reduce
     fe25519 t = *f;
