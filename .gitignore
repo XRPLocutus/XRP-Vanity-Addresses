@@ -17,5 +17,9 @@ desktop.ini
 # Environment
 .env
 
+# GPU build artifacts
+gpu/build*/
+gpu/build_gpu.bat
+
 # Claude Code
 .claude/
