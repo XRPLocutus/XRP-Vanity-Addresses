@@ -13,9 +13,11 @@ use rand::RngCore;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use zeroize::Zeroizing;
 
 use crypto::{
     build_payload, entropy_to_private_key, entropy_to_seed, pubkey_to_account_id,
@@ -67,6 +69,10 @@ struct Args {
     /// Show progress every N million attempts
     #[arg(long, default_value_t = 10)]
     progress_every_million: u64,
+
+    /// Clear screen and scrollback after displaying results
+    #[arg(long, default_value_t = false)]
+    clear: bool,
 }
 
 fn main() -> Result<()> {
@@ -89,6 +95,15 @@ fn main() -> Result<()> {
     {
         if let Err(e) = validate_vanity_chars(pattern, ci) {
             bail!("{}", e);
+        }
+    }
+
+    // --- Validate system entropy source ---
+    {
+        let mut test_buf = [0u8; 32];
+        ChaCha20Rng::from_entropy().fill_bytes(&mut test_buf);
+        if test_buf.iter().all(|&b| b == 0) {
+            bail!("System entropy source appears broken (returned all zeros). Cannot safely generate keys.");
         }
     }
 
@@ -149,7 +164,7 @@ fn main() -> Result<()> {
     let done = Arc::new(AtomicBool::new(false));
     let interrupted = Arc::new(AtomicBool::new(false));
     let counter = Arc::new(AtomicU64::new(0));
-    let results: Arc<Mutex<Vec<([u8; 16], String)>>> = Arc::new(Mutex::new(Vec::new()));
+    let results: Arc<Mutex<Vec<(Zeroizing<[u8; 16]>, String)>>> = Arc::new(Mutex::new(Vec::new()));
     let target = args.count;
     let start = Instant::now();
     let progress_interval = args.progress_every_million * 1_000_000;
@@ -172,7 +187,7 @@ fn main() -> Result<()> {
     // --- Parallel search across all threads ---
     (0..threads).into_par_iter().for_each(|_| {
         let mut rng = ChaCha20Rng::from_entropy();
-        let mut entropy = [0u8; 16];
+        let mut entropy = Zeroizing::new([0u8; 16]);
         let mut local_count: u64 = 0;
         let mut addr_buf = [0u8; 50];
 
@@ -182,7 +197,7 @@ fn main() -> Result<()> {
                 break;
             }
 
-            rng.fill_bytes(&mut entropy);
+            rng.fill_bytes(&mut *entropy);
 
             let private_key = entropy_to_private_key(&entropy);
             let signing_key = SigningKey::from_bytes(&private_key);
@@ -261,9 +276,9 @@ fn main() -> Result<()> {
 
             // Match found -- store result
             let addr_string = std::str::from_utf8(addr).unwrap().to_string();
-            let mut results_guard = results.lock().unwrap();
+            let mut results_guard = results.lock().unwrap_or_else(|e| e.into_inner());
             if results_guard.len() < target {
-                results_guard.push((entropy, addr_string));
+                results_guard.push((Zeroizing::new(*entropy), addr_string));
                 if results_guard.len() >= target {
                     done.store(true, Ordering::Relaxed);
                 }
@@ -282,7 +297,7 @@ fn main() -> Result<()> {
     // --- Display results ---
     let elapsed = start.elapsed();
     let total_attempts = counter.load(Ordering::Relaxed);
-    let results = results.lock().unwrap();
+    let mut results = results.lock().unwrap_or_else(|e| e.into_inner());
     let was_interrupted = interrupted.load(Ordering::Relaxed);
 
     // Clear the progress line
@@ -314,7 +329,8 @@ fn main() -> Result<()> {
             let private_key = entropy_to_private_key(entropy);
             let signing_key = SigningKey::from_bytes(&private_key);
             let seed = entropy_to_seed(entropy);
-            let secret_hex = hex::encode(signing_key.to_bytes());
+            let key_bytes = Zeroizing::new(signing_key.to_bytes());
+            let secret_hex = Zeroizing::new(hex::encode(&*key_bytes));
 
             if results.len() > 1 {
                 empty();
@@ -348,9 +364,27 @@ fn main() -> Result<()> {
         empty();
         title("IMPORTANT: Store your secret key / seed securely!");
         title("Anyone with the seed controls the wallet.");
-        title("Clear this terminal after noting it down.");
+        if !args.clear {
+            title("Clear this terminal after noting it down.");
+        }
         empty();
         bottom();
+    }
+
+    let found_any = !results.is_empty();
+
+    // Explicitly wipe all secret key material from memory
+    results.clear();
+    drop(results);
+
+    if args.clear && found_any {
+        eprint!("\nPress Enter to clear screen and scrollback...");
+        io::stderr().flush().ok();
+        let _ = io::stdin().read_line(&mut String::new());
+        // ANSI: clear screen + clear scrollback + cursor home
+        print!("\x1B[2J\x1B[3J\x1B[H");
+        io::stdout().flush().ok();
+        println!("Screen cleared.");
     }
 
     Ok(())

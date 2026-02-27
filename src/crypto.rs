@@ -14,6 +14,7 @@ use ed25519_dalek::SigningKey;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512};
 use std::sync::LazyLock;
+use zeroize::Zeroizing;
 
 /// XRPL uses its own Base58 alphabet (different from Bitcoin's).
 /// Notably missing: 0, O, I, l (to avoid visual ambiguity).
@@ -30,10 +31,11 @@ pub static XRPL_BS58_ALPHABET: LazyLock<bs58::Alphabet> =
 
 /// Derives a 32-byte Ed25519 private key from 16-byte entropy using the
 /// standard XRPL method: SHA-512(entropy), take first 32 bytes.
+/// Returns a `Zeroizing` wrapper that wipes the key from memory on drop.
 #[inline(always)]
-pub fn entropy_to_private_key(entropy: &[u8; 16]) -> [u8; 32] {
+pub fn entropy_to_private_key(entropy: &[u8; 16]) -> Zeroizing<[u8; 32]> {
     let hash = Sha512::digest(entropy);
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&hash[..32]);
     key
 }
@@ -102,8 +104,9 @@ pub fn entropy_to_address(entropy: &[u8; 16]) -> (SigningKey, String) {
 /// seed importable into any XRPL wallet (XUMM/Xaman, etc.).
 ///
 /// Format: Base58Check([0x01, 0xE1, 0x4B] + entropy_16 + checksum_4)
-pub fn entropy_to_seed(entropy: &[u8; 16]) -> String {
-    let mut payload = [0u8; 23]; // 3 prefix + 16 entropy + 4 checksum
+/// Returns a `Zeroizing` wrapper that wipes the seed from memory on drop.
+pub fn entropy_to_seed(entropy: &[u8; 16]) -> Zeroizing<String> {
+    let mut payload = Zeroizing::new([0u8; 23]); // 3 prefix + 16 entropy + 4 checksum
     // Ed25519 family seed prefix
     payload[0] = 0x01;
     payload[1] = 0xE1;
@@ -115,9 +118,11 @@ pub fn entropy_to_seed(entropy: &[u8; 16]) -> String {
     let hash2 = Sha256::digest(hash1);
     payload[19..23].copy_from_slice(&hash2[..4]);
 
-    bs58::encode(&payload)
-        .with_alphabet(&*XRPL_BS58_ALPHABET)
-        .into_string()
+    Zeroizing::new(
+        bs58::encode(&*payload)
+            .with_alphabet(&*XRPL_BS58_ALPHABET)
+            .into_string(),
+    )
 }
 
 // ============================================================================
@@ -195,7 +200,7 @@ mod tests {
         assert!(
             seed.starts_with('s'),
             "Ed25519 seed must start with 's': {}",
-            seed
+            &*seed
         );
     }
 

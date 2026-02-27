@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "xrpl-vanity"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "bs58",
@@ -658,6 +658,7 @@ dependencies = [
  "rayon",
  "ripemd",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
