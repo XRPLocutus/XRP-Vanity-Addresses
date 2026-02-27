@@ -117,14 +117,10 @@ __device__ void ge25519_double(ge25519_p1p1* r, const ge25519_p2* p) {
     fe25519_sub(&r->X, &r->X, &a);
     fe25519_sub(&r->X, &r->X, &b);    // r->X = E
 
-    fe25519_add(&r->Z, &d, &b);       // G = D + B
-    fe25519_sub(&r->T, &r->Z, &c);    // F = G - C
-    fe25519_sub(&r->Y, &d, &b);       // H = D - B
-
-    fe25519_mul(&r->X, &r->X, &r->T); // X3 = E * F (will be divided by T later)
-    fe25519_mul(&r->Y, &r->Z, &r->Y); // Y3 = G * H
-    fe25519_mul(&r->Z, &r->T, &r->Z); // Z3 = F * G
-    // T is implicit in p1p1 form
+    fe25519_add(&r->Z, &d, &b);       // r->Z = G = D + B
+    fe25519_sub(&r->T, &r->Z, &c);    // r->T = F = G - C
+    fe25519_sub(&r->Y, &d, &b);       // r->Y = H = D - B
+    // p1p1 = (E, H, G, F) → p1p1_to_p3 produces (E*F, H*G, G*F, E*H)
 }
 
 // Point addition: r = p + q (p3 + cached → p1p1)
@@ -139,16 +135,14 @@ __device__ void ge25519_add_cached(ge25519_p1p1* r, const ge25519_p3* p, const g
     fe25519_mul(&r->Z, &p->Z, &q->Z);   // F = Z1 * Z2
     fe25519_add(&r->Z, &r->Z, &r->Z);   // F = 2 * Z1 * Z2
 
-    fe25519_sub(&r->X, &a, &b);          // X3 = C - D
-    fe25519_add(&r->Y, &a, &b);          // Y3 = C + D
-    fe25519_add(&a, &r->Z, &r->T);       // G = F + E
-    fe25519_sub(&b, &r->Z, &r->T);       // H = F - E
+    fe25519_sub(&r->X, &a, &b);          // r->X = E = C - D
+    fe25519_add(&r->Y, &a, &b);          // r->Y = H = C + D
+    fe25519_add(&a, &r->Z, &r->T);       // a = G = F + E
+    fe25519_sub(&b, &r->Z, &r->T);       // b = F' = F - E (named H in EFD)
 
-    fe25519_mul(&r->X, &r->X, &b);       // X3 = (C-D) * H
-    fe25519_mul(&r->Y, &r->Y, &a);       // Y3 = (C+D) * G
-    fe25519_mul(&r->Z, &a, &b);          // Z3 = G * H
-    fe25519_mul(&r->T, &r->X, &r->Y);    // T3 placeholder (not used directly)
-    // Actually in p1p1, T is separate
+    fe25519_copy(&r->Z, &a);             // r->Z = G
+    fe25519_copy(&r->T, &b);             // r->T = F'
+    // p1p1 = (E, H, G, F') → p1p1_to_p3 produces (E*F', H*G, G*F', E*H)
 }
 
 // Subtraction: r = p - q
@@ -191,8 +185,9 @@ __device__ void ge25519_add_precomp(ge25519_p1p1* r, const ge25519_p3* p, const 
     fe25519_add(&r->T, &r->Z, &c);       // G = F + E
     fe25519_sub(&r->Z, &r->Z, &c);       // H = F - E (stored in Z for p1p1)
 
-    // In p1p1 form: result = (X:Y:Z:T) where actual = (X*T, Y*Z, Z*T)
-    // Swap Z and T to match p1p1 convention
+    // p1p1_to_p3 computes: p3.X = p1p1.X * p1p1.T, p3.Y = p1p1.Y * p1p1.Z
+    // ref10 requires: X3 = (C-D)*H, Y3 = (C+D)*G
+    // We stored G in T-slot and H in Z-slot, so swap them.
     fe25519 tmp;
     fe25519_copy(&tmp, &r->Z);
     fe25519_copy(&r->Z, &r->T);
@@ -216,7 +211,7 @@ __device__ void ge25519_sub_precomp(ge25519_p1p1* r, const ge25519_p3* p, const 
     fe25519_sub(&r->T, &r->Z, &c);       // Negated
     fe25519_add(&r->Z, &r->Z, &c);
 
-    // Swap Z and T
+    // Swap Z↔T for p1p1 convention (same as ge25519_add_precomp)
     fe25519 tmp;
     fe25519_copy(&tmp, &r->Z);
     fe25519_copy(&r->Z, &r->T);
@@ -247,26 +242,21 @@ __device__ void ge25519_pack(uint8_t out[32], const ge25519_p3* p) {
 // Scalar multiplication (fixed-base, windowed)
 // ─────────────────────────────────────────────────────────────
 
-// Select from precomputed table (constant-time)
+// Select from precomputed table
+// Not constant-time — for vanity generation the scalar is not secret.
 __device__ __forceinline__
 void ge25519_select_precomp(ge25519_precomp* r, int pos, int b) {
-    // b is a signed digit: -8..8, 0 excluded from table
     int bneg = (b < 0) ? 1 : 0;
-    int babs = b - (((-bneg) & b) * 2);  // abs(b)
+    int babs = b - (((-bneg) & b) * 2);
 
-    // Neutral precomp point
     fe25519_one(&r->ypx);
     fe25519_one(&r->ymx);
     fe25519_zero(&r->xy2d);
 
-    // Lookup from table (index is not secret — derived from scalar which is hashed)
-    for (int i = 0; i < 8; i++) {
-        if (babs == i + 1) {
-            *r = BASEPOINT_TABLE[pos][i];
-        }
+    if (babs > 0 && babs <= 8) {
+        *r = BASEPOINT_TABLE[pos][babs - 1];
     }
 
-    // If negative, negate the point: swap ypx/ymx and negate xy2d
     if (bneg) {
         fe25519 tmp;
         fe25519_copy(&tmp, &r->ypx);
@@ -295,25 +285,11 @@ __device__ void ed25519_scalarmult_base(ge25519_p3* result, const uint8_t scalar
     }
     digits[63] += carry;
 
-    // Start from the most significant digit and work down
-    // First, handle digit 63
+    // Process digits from most significant (63) to least (0),
+    // with 4 doublings between each digit.
     ge25519_precomp t;
     ge25519_p1p1 r_p1p1;
 
-    ge25519_set_neutral(result);
-
-    // Process each window (positions 63 down to 32 for upper table,
-    // then 31 down to 0 for lower table)
-    for (int i = 63; i >= 0; i--) {
-        if (i < 63) {
-            // Double the accumulator 4 times (for 4-bit window)
-            // Actually in the standard approach, we process all digits
-            // in a single pass with interleaved doubling
-        }
-    }
-
-    // Simpler approach: process digits from most significant to least
-    // with 4 doublings between each digit
     ge25519_set_neutral(result);
 
     // Process from digit 63 down to 0

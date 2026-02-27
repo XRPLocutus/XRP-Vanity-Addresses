@@ -119,13 +119,12 @@ __device__ void ripemd160(const uint8_t* msg, int len, uint8_t digest[20]) {
         ar = er; er = dr; dr = rotl32(cr, 10); cr = br; br = tr;
     }
 
-    // Final addition
-    uint32_t t = 0x67452301 + cl + dr;
-    uint32_t h0 = 0xefcdab89 + dl + er;
-    uint32_t h1 = 0x98badcfe + el + ar;
-    uint32_t h2 = 0x10325476 + al + br;
-    uint32_t h3 = 0xc3d2e1f0 + bl + cr;
-    uint32_t h4 = t;
+    // Final addition (cyclic shift of h-values per RIPEMD-160 spec)
+    uint32_t h0 = 0xefcdab89 + cl + dr;   // h0' = h1 + CL + DR
+    uint32_t h1 = 0x98badcfe + dl + er;    // h1' = h2 + DL + ER
+    uint32_t h2 = 0x10325476 + el + ar;    // h2' = h3 + EL + AR
+    uint32_t h3 = 0xc3d2e1f0 + al + br;   // h3' = h4 + AL + BR
+    uint32_t h4 = 0x67452301 + bl + cr;    // h4' = h0 + BL + CR
 
     // Store as little-endian bytes
     store_le32(digest +  0, h0);

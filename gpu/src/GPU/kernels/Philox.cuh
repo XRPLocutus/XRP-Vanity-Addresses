@@ -45,25 +45,24 @@ void philox4x32_10(uint32_t ctr[4], uint32_t key[2]) {
 }
 
 // Generate 16 bytes of entropy for a specific thread and iteration
+// Uses all 256 bits of the host seed (8 x uint32_t)
 __device__ __forceinline__
 void generate_entropy(
     const uint32_t* host_seed,
-    uint32_t block_id,
-    uint32_t thread_id,
-    uint64_t iteration,
-    uint8_t entropy[16]
+    uint32_t block_id, uint32_t thread_id,
+    uint64_t iteration, uint8_t entropy[16]
 ) {
     uint32_t ctr[4] = {
-        thread_id,
-        block_id,
-        static_cast<uint32_t>(iteration),
-        static_cast<uint32_t>(iteration >> 32)
+        thread_id   ^ host_seed[2],
+        block_id    ^ host_seed[3],
+        static_cast<uint32_t>(iteration)       ^ host_seed[4],
+        static_cast<uint32_t>(iteration >> 32)  ^ host_seed[5]
     };
-    uint32_t key[2] = { host_seed[0], host_seed[1] };
-
+    uint32_t key[2] = {
+        host_seed[0] ^ host_seed[6],
+        host_seed[1] ^ host_seed[7]
+    };
     philox4x32_10(ctr, key);
-
-    // Copy 4x uint32_t → 16 bytes
     reinterpret_cast<uint32_t*>(entropy)[0] = ctr[0];
     reinterpret_cast<uint32_t*>(entropy)[1] = ctr[1];
     reinterpret_cast<uint32_t*>(entropy)[2] = ctr[2];

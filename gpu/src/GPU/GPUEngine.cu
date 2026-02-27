@@ -1,5 +1,6 @@
 #include "GPUEngine.h"
 #include "kernels/xrpl_kernel.cuh"
+#include "../CPU/Ed25519_ref10.h"
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <cstring>
@@ -103,9 +104,19 @@ bool GPUEngine::init() {
 }
 
 bool GPUEngine::upload_basepoint_table() {
-    // TODO: Compute the full precomputed basepoint table on CPU
-    // and upload to __constant__ BASEPOINT_TABLE on GPU.
-    printf("Basepoint table: will be computed at startup (Phase 3)\n");
+    printf("Computing Ed25519 basepoint table on CPU...\n");
+
+    // Compute on CPU
+    cpu_ge25519_precomp cpu_table[32][8];
+    cpu_ed25519_compute_basepoint_table(cpu_table);
+
+    // The GPU ge25519_precomp has 3 fe25519 fields, each with 5 uint64_t limbs.
+    // cpu_ge25519_precomp has identical layout (3 arrays of 5 uint64_t).
+    // Upload directly via cudaMemcpyToSymbol.
+    CUDA_CHECK(cudaMemcpyToSymbol(BASEPOINT_TABLE, cpu_table, sizeof(cpu_table)));
+
+    printf("Basepoint table uploaded to GPU constant memory (%zu bytes)\n",
+           sizeof(cpu_table));
     return true;
 }
 

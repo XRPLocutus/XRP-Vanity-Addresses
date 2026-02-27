@@ -4,7 +4,9 @@
 #include <vector>
 
 // Iterations per thread per kernel launch (must match xrpl_kernel.cuh)
+#ifndef ITERATIONS_PER_THREAD
 #define ITERATIONS_PER_THREAD 64
+#endif
 
 // Host-side result with all intermediate values
 struct HostResult {

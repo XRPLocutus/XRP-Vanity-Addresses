@@ -4,42 +4,9 @@
 // XRPL Base58Check encoding and pattern matching on GPU
 // XRPL uses a custom Base58 alphabet (no 0, O, I, l)
 
-__device__ __constant__ char XRPL_ALPHABET[58] = {
-    'r','p','s','h','n','a','f','3','9','w',
-    'B','U','D','N','E','G','H','J','K','L',
-    'M','4','P','Q','R','S','T','7','V','W',
-    'X','A','Y','2','5','Z','b','c','d','e',
-    'C','f','g','6','5','j','k','m','8','o',
-    'F','q','t','u','v','i','x','y'
-};
-
-// Actually, XRPL Base58 alphabet is:
-// rpshnaf39wBUDNEGHJKLM4PQRST7VWXrA2Ybcdefghi...
-// Let me use the correct XRPL alphabet
-
-// Correct XRPL Base58 alphabet (ripple):
-// rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqt1uv AixzHy
-// Actually the standard one is:
+// XRPL Base58 alphabet (ripple)
 __device__ __constant__ char XRPL_B58_ALPHABET[] =
     "rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz";
-
-// Reverse lookup table (char → value, 0xFF = invalid)
-__device__ __constant__ uint8_t XRPL_B58_DECODE[128] = {
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
-    // '0'-'9': 0xFF for 0, then map 1-9
-    0xFF, 50, 24, 7, 21, 44, 43, 27, 48, 8,  // 0-9
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,       // :;<=>?@
-    30, 10, 40, 11, 14, 49, 15, 16, 0xFF, 17, // A-J
-    18, 19, 20, 12, 0xFF, 22, 23, 0, 25, 26, // K-T
-    9, 28, 29, 31, 33, 34,                     // U-Z
-    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,             // [\]^_`
-    1, 36, 37, 38, 39, 3, 41, 2, 51, 45, 46, // a-k
-    0xFF, 47, 4, 52, 5, 53, 0, 6, 54, 55, 56, // l-v (l=invalid)
-    57, 58, 59,                                 // w-y (z maps too)
-    0xFF,0xFF,0xFF,0xFF,0xFF                    // {|}~DEL
-};
 
 // Big-integer division: divide a 25-byte big-endian number by 58
 // Returns the remainder (0..57) and modifies the number in-place

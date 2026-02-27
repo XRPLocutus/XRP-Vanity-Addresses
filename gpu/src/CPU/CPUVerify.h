@@ -12,7 +12,7 @@ struct CPUResult {
     uint8_t  public_key[32];
     uint8_t  account_id[20];
     char     address[36];
-    char     seed[30];          // sEd... family seed
+    char     seed[32];          // sEd... family seed (31 chars + null)
 };
 
 class CPUVerify {

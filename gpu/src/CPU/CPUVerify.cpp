@@ -1,4 +1,5 @@
 #include "CPUVerify.h"
+#include "Ed25519_ref10.h"
 #include <cstdio>
 #include <cstring>
 #include <cctype>
@@ -41,8 +42,12 @@ static inline void put_be32(uint8_t* p, uint32_t v) {
 }
 
 void hash(const uint8_t* msg, int len, uint8_t digest[32]) {
+    if (len < 0 || len > 55) {
+        fprintf(stderr, "FATAL: cpu_sha256::hash len=%d exceeds 55\n", len);
+        abort();
+    }
     uint8_t block[64] = {};
-    memcpy(block, msg, len);
+    if (len > 0) memcpy(block, msg, len);
     block[len] = 0x80;
     put_be32(block + 60, uint32_t(len) << 3);
 
@@ -113,8 +118,9 @@ static inline void put_be64(uint8_t* p, uint64_t v) {
 }
 
 void hash(const uint8_t* msg, int len, uint8_t digest[64]) {
+    if (len < 0 || len > 111) { fprintf(stderr, "FATAL: cpu_sha512 len=%d\n", len); abort(); }
     uint8_t block[128] = {};
-    memcpy(block, msg, len);
+    if (len > 0) memcpy(block, msg, len);
     block[len] = 0x80;
     put_be64(block + 120, uint64_t(len) << 3);
 
@@ -196,8 +202,9 @@ static const int SR[80] = {
 };
 
 void hash(const uint8_t* msg, int len, uint8_t digest[20]) {
+    if (len < 0 || len > 55) { fprintf(stderr, "FATAL: cpu_ripemd160 len=%d\n", len); abort(); }
     uint8_t block[64] = {};
-    memcpy(block, msg, len);
+    if (len > 0) memcpy(block, msg, len);
     block[len] = 0x80;
     put_le32(block + 56, uint32_t(len) << 3);
 
@@ -226,12 +233,13 @@ void hash(const uint8_t* msg, int len, uint8_t digest[20]) {
         ar=er; er=dr; dr=rotl(cr,10); cr=br; br=tr;
     }
 
-    uint32_t t=0x67452301+cl+dr;
-    put_le32(digest+ 0, 0xefcdab89+dl+er);
-    put_le32(digest+ 4, 0x98badcfe+el+ar);
-    put_le32(digest+ 8, 0x10325476+al+br);
-    put_le32(digest+12, 0xc3d2e1f0+bl+cr);
-    put_le32(digest+16, t);
+    // Final addition (cyclic shift of h-values per RIPEMD-160 spec)
+    uint32_t t = 0xefcdab89+cl+dr;       // h0' = h1 + CL + DR
+    put_le32(digest+ 0, t);
+    put_le32(digest+ 4, 0x98badcfe+dl+er); // h1' = h2 + DL + ER
+    put_le32(digest+ 8, 0x10325476+el+ar); // h2' = h3 + EL + AR
+    put_le32(digest+12, 0xc3d2e1f0+al+br); // h3' = h4 + AL + BR
+    put_le32(digest+16, 0x67452301+bl+cr); // h4' = h0 + BL + CR
 }
 
 } // namespace cpu_ripemd160
@@ -286,42 +294,25 @@ std::string encode_check(const uint8_t* payload, int len) {
 namespace cpu_seed {
 
 std::string encode(const uint8_t entropy[16]) {
-    // Payload: [0xE1, 0x4B] + 16-byte entropy + 4-byte checksum
+    // XRPL Ed25519 family seed format (must match src/crypto.rs):
+    // payload = [0x01, 0xE1, 0x4B] (3 prefix bytes) + entropy (16 bytes) = 19 bytes
+    // checksum = SHA256(SHA256(payload[0..19]))[0..4]
+    // base58(23 bytes) → "sEd..." (always 31 characters)
     uint8_t payload[23];
-    payload[0] = 0xE1;
-    payload[1] = 0x4B;
-    memcpy(payload + 2, entropy, 16);
+    payload[0] = 0x01;
+    payload[1] = 0xE1;
+    payload[2] = 0x4B;
+    memcpy(payload + 3, entropy, 16);
 
-    // Double SHA-256 checksum of first 18 bytes
     uint8_t hash1[32], hash2[32];
-    cpu_sha256::hash(payload, 18, hash1);
+    cpu_sha256::hash(payload, 19, hash1);
     cpu_sha256::hash(hash1, 32, hash2);
-    memcpy(payload + 18, hash2, 4);
+    payload[19] = hash2[0];
+    payload[20] = hash2[1];
+    payload[21] = hash2[2];
+    payload[22] = hash2[3];
 
-    // Actually checksum is over the type prefix + entropy (first 18 bytes)
-    // Wait, the XRPL seed format is: [type_byte] + entropy
-    // For Ed25519: type = 0x01, 0xE1 (encoded as sEd...)
-    // Let me use the correct format:
-    // Payload for base58: [0x01, 0xE1] + entropy
-    // Hmm, actually in the Rust code it was different.
-    // The XRPL family seed uses prefix bytes that encode to "sEd"
-
-    // Standard XRPL Ed25519 seed encoding:
-    // payload = [0xE1, 0x4B] (2 bytes) + entropy (16 bytes) = 18 bytes
-    // checksum = SHA256(SHA256(payload[0..18]))[0..4]
-    // base58(payload + checksum) → starts with "sEd"
-
-    // Recompute checksum correctly
-    cpu_sha256::hash(payload, 18, hash1);
-    cpu_sha256::hash(hash1, 32, hash2);
-    payload[18] = hash2[0];
-    payload[19] = hash2[1];
-    payload[20] = hash2[2];
-    payload[21] = hash2[3];
-
-    // Note: total is 22 bytes, but we need 23 for the encoding
-    // Actually: 2 prefix + 16 entropy + 4 checksum = 22 bytes
-    return cpu_base58::encode_check(payload, 22);
+    return cpu_base58::encode_check(payload, 23);
 }
 
 } // namespace cpu_seed
@@ -334,15 +325,15 @@ CPUResult CPUVerify::derive(const uint8_t entropy[16]) {
     CPUResult r;
     memcpy(r.entropy, entropy, 16);
 
-    // Step 1: SHA-512-Half → private key
+    // Step 1: SHA-512-Half → private key (Ed25519 "seed")
     cpu_sha512::hash_half(entropy, 16, r.private_key);
 
-    // Step 2: Ed25519 scalar multiply → public key
-    // NOTE: This requires a CPU Ed25519 implementation.
-    // For the initial version, we'll leave this as a TODO
-    // and rely on a library (e.g., OpenSSL or libsodium).
-    // For now, zero out the public key.
-    memset(r.public_key, 0, 32);
+    // Step 2: RFC 8032 Ed25519 public key derivation:
+    // SHA-512(seed) → first 32 bytes → clamp → scalar * B
+    // (ed25519_dalek's SigningKey::from_bytes does this internally)
+    uint8_t ed_hash[64];
+    cpu_sha512::hash(r.private_key, 32, ed_hash);
+    cpu_ed25519_derive_pubkey(ed_hash, r.public_key);
 
     // Step 3: 0xED + pubkey → SHA-256 → RIPEMD-160
     uint8_t prefixed[33];
@@ -368,8 +359,8 @@ CPUResult CPUVerify::derive(const uint8_t entropy[16]) {
 
     // Step 5: Seed
     std::string seed = cpu_seed::encode(entropy);
-    strncpy(r.seed, seed.c_str(), 29);
-    r.seed[29] = '\0';
+    strncpy(r.seed, seed.c_str(), 31);
+    r.seed[31] = '\0';
 
     return r;
 }
@@ -447,29 +438,109 @@ std::string CPUVerify::hex_encode(const uint8_t* data, int len) {
 }
 
 bool CPUVerify::run_kat() {
-    // TODO: Add KAT vectors generated from the Rust v2.3 reference
-    // For now, just validate that SHA-256 and SHA-512 work correctly
-    printf("Running CPU hash self-tests...\n");
+    printf("Running Known-Answer Tests (KAT)...\n");
 
-    // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb924...
-    uint8_t empty_sha256[32];
-    cpu_sha256::hash(nullptr, 0, empty_sha256);
-    if (empty_sha256[0] != 0xe3 || empty_sha256[1] != 0xb0) {
-        fprintf(stderr, "FAIL: SHA-256 empty string\n");
-        return false;
+    // KAT vectors generated from Rust v2.3 reference (src/crypto.rs)
+    struct KATVector {
+        uint8_t entropy[16];
+        uint8_t private_key[32];
+        uint8_t public_key[32];
+        uint8_t account_id[20];
+        const char* address;
+        const char* seed;
+    };
+
+    static const KATVector vectors[] = {
+        // Vector 0: All-zeros entropy
+        {
+            {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
+            {0x0b,0x6c,0xba,0xc8,0x38,0xdf,0xe7,0xf4,0x7e,0xa1,0xbd,0x0d,0xf0,0x0e,0xc2,0x82,0xfd,0xf4,0x55,0x10,0xc9,0x21,0x61,0x07,0x2c,0xcf,0xb8,0x40,0x35,0x39,0x0c,0x4d},
+            {0x1a,0x7c,0x08,0x28,0x46,0xcf,0xf5,0x8f,0xf9,0xa8,0x92,0xba,0x4b,0xa2,0x59,0x31,0x51,0xcc,0xf1,0xdb,0xa5,0x9f,0x37,0x71,0x4c,0xc9,0xed,0x39,0x82,0x4a,0xf8,0x5f},
+            {0x62,0x9c,0xcc,0x14,0x4a,0xc8,0x46,0x45,0x61,0xf1,0x1d,0x88,0x70,0xa5,0x7d,0xc3,0x76,0xa0,0xd1,0x91},
+            "r9zRhGr7b6xPekLvT6wP4qNdWMryaumZS7",
+            "sEdSJHS4oiAdz7w2X2ni1gFiqtbJHqE"
+        },
+        // Vector 1: All-0xFF entropy
+        {
+            {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff},
+            {0xf6,0x37,0xfb,0x3a,0xe4,0x4b,0x36,0x46,0xcf,0xd3,0x37,0x1d,0x92,0xb3,0x8c,0x00,0xad,0x34,0x29,0x93,0xe5,0x5e,0x21,0x3e,0x38,0x50,0xe7,0x2b,0x7f,0xcb,0xad,0x4d},
+            {0x3e,0x2a,0xc4,0x34,0xea,0x40,0x1b,0x70,0x7b,0x1d,0x38,0xa8,0xd0,0xbe,0x50,0xcf,0x42,0x36,0x57,0xde,0xed,0x4a,0xe7,0x06,0xaa,0xb1,0x06,0xc0,0xaf,0xfa,0xbd,0x6b},
+            {0x55,0x81,0x71,0x3a,0x49,0x4b,0xf6,0xd3,0xf0,0x9f,0x81,0x84,0x0d,0x44,0x03,0xce,0x52,0x10,0xd9,0x2b},
+            "r3ofWfcM2UoBw6fnP7BFbsY5XneivkGyrY",
+            "sEdV19BLfeQeKdEXyYA4NhjPJe6XBfG"
+        },
+        // Vector 2: Sequential 0x01..0x10 entropy
+        {
+            {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x10},
+            {0xb4,0xc4,0xe0,0x46,0x82,0x6b,0xd2,0x61,0x90,0xd0,0x97,0x15,0xfc,0x31,0xf4,0xe6,0xa7,0x28,0x20,0x4e,0xad,0xd1,0x12,0x90,0x5b,0x08,0xb1,0x4b,0x7f,0x15,0xc4,0xf3},
+            {0x01,0xfa,0x53,0xfa,0x5a,0x7e,0x77,0x79,0x8f,0x88,0x2e,0xce,0x20,0xb1,0xab,0xc0,0x0b,0xb3,0x58,0xa9,0xe5,0x5a,0x20,0x2d,0x0d,0x06,0x76,0xbd,0x0c,0xe3,0x7a,0x63},
+            {0xd2,0x8b,0x17,0x7e,0x48,0xd9,0xa8,0xd0,0x57,0xe7,0x0f,0x7e,0x46,0x4b,0x49,0x83,0x67,0x28,0x1b,0x98},
+            "rLUEXYuLiQptky37CqLcm9USQpPiz5rkpD",
+            "sEdSKaCy2JT7JaM7v95H9SxkhP9wS2r"
+        },
+    };
+
+    int num_vectors = sizeof(vectors) / sizeof(vectors[0]);
+    bool all_ok = true;
+
+    for (int v = 0; v < num_vectors; v++) {
+        const KATVector& kat = vectors[v];
+        printf("  KAT vector %d: ", v);
+
+        CPUResult cpu = derive(kat.entropy);
+
+        // Check private key (SHA-512-Half)
+        if (memcmp(cpu.private_key, kat.private_key, 32) != 0) {
+            fprintf(stderr, "FAIL private_key\n");
+            fprintf(stderr, "    expected: %s\n", hex_encode(kat.private_key, 32).c_str());
+            fprintf(stderr, "    got:      %s\n", hex_encode(cpu.private_key, 32).c_str());
+            all_ok = false;
+            continue;
+        }
+
+        // Check public key (Ed25519)
+        if (memcmp(cpu.public_key, kat.public_key, 32) != 0) {
+            fprintf(stderr, "FAIL public_key\n");
+            fprintf(stderr, "    expected: %s\n", hex_encode(kat.public_key, 32).c_str());
+            fprintf(stderr, "    got:      %s\n", hex_encode(cpu.public_key, 32).c_str());
+            all_ok = false;
+            continue;
+        }
+
+        // Check account ID (SHA-256 + RIPEMD-160)
+        if (memcmp(cpu.account_id, kat.account_id, 20) != 0) {
+            fprintf(stderr, "FAIL account_id\n");
+            fprintf(stderr, "    expected: %s\n", hex_encode(kat.account_id, 20).c_str());
+            fprintf(stderr, "    got:      %s\n", hex_encode(cpu.account_id, 20).c_str());
+            all_ok = false;
+            continue;
+        }
+
+        // Check address (Base58Check)
+        if (strcmp(cpu.address, kat.address) != 0) {
+            fprintf(stderr, "FAIL address\n");
+            fprintf(stderr, "    expected: %s\n", kat.address);
+            fprintf(stderr, "    got:      %s\n", cpu.address);
+            all_ok = false;
+            continue;
+        }
+
+        // Check seed (sEd... format)
+        if (strcmp(cpu.seed, kat.seed) != 0) {
+            fprintf(stderr, "FAIL seed\n");
+            fprintf(stderr, "    expected: %s\n", kat.seed);
+            fprintf(stderr, "    got:      %s\n", cpu.seed);
+            all_ok = false;
+            continue;
+        }
+
+        printf("OK (address=%s, seed=%s)\n", cpu.address, cpu.seed);
     }
 
-    // SHA-512("") starts with cf83e1357eefb8bd...
-    uint8_t empty_sha512[64];
-    cpu_sha512::hash(nullptr, 0, empty_sha512);
-    if (empty_sha512[0] != 0xcf || empty_sha512[1] != 0x83) {
-        fprintf(stderr, "FAIL: SHA-512 empty string\n");
-        return false;
+    if (all_ok) {
+        printf("All %d KAT vectors passed.\n\n", num_vectors);
+    } else {
+        fprintf(stderr, "KAT FAILURES detected!\n\n");
     }
-
-    printf("  SHA-256: OK\n");
-    printf("  SHA-512: OK\n");
-    printf("  RIPEMD-160: (included, not independently tested yet)\n");
-    printf("CPU self-tests passed.\n\n");
-    return true;
+    return all_ok;
 }

@@ -64,13 +64,15 @@ __global__ void xrpl_vanity_kernel(
         uint8_t entropy[16];
         generate_entropy(host_seed, blockIdx.x, threadIdx.x, iter, entropy);
 
-        // ──── Step 2: SHA-512-Half → 32-byte private key ────
+        // ──── Step 2: SHA-512-Half → 32-byte private key (Ed25519 "seed") ────
         uint8_t private_key[32];
         sha512_half(entropy, 16, private_key);
 
-        // ──── Step 3: Ed25519 scalar multiply → public key ────
+        // ──── Step 3: RFC 8032 Ed25519 pubkey: SHA-512(seed) → clamp → scalar * B ────
+        uint8_t ed_hash[64];
+        sha512(private_key, 32, ed_hash);
         uint8_t public_key[32];
-        ed25519_derive_pubkey(private_key, public_key);
+        ed25519_derive_pubkey(ed_hash, public_key);
 
         // ──── Step 4: 0xED prefix + pubkey → SHA-256 → RIPEMD-160 ────
         uint8_t prefixed[33];
@@ -130,13 +132,15 @@ __global__ void xrpl_derive_single(
     uint8_t entropy[16];
     for (int i = 0; i < 16; i++) entropy[i] = entropy_in[i];
 
-    // Step 2: SHA-512-Half
+    // Step 2: SHA-512-Half → private key (Ed25519 "seed")
     uint8_t private_key[32];
     sha512_half(entropy, 16, private_key);
 
-    // Step 3: Ed25519
+    // Step 3: RFC 8032 Ed25519 pubkey: SHA-512(seed) → clamp → scalar * B
+    uint8_t ed_hash[64];
+    sha512(private_key, 32, ed_hash);
     uint8_t public_key[32];
-    ed25519_derive_pubkey(private_key, public_key);
+    ed25519_derive_pubkey(ed_hash, public_key);
 
     // Step 4: SHA-256 + RIPEMD-160
     uint8_t prefixed[33];
