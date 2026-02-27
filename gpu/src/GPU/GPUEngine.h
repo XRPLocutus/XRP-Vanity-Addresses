@@ -47,9 +47,6 @@ public:
     // Derive a single address on GPU (for KAT validation)
     HostResult derive_single(const uint8_t entropy[16]);
 
-    // Test GPU field arithmetic against CPU (returns true if all pass)
-    bool test_field_arithmetic();
-
     // GPU info
     std::string device_name() const { return device_name_; }
     int sm_count() const { return sm_count_; }
