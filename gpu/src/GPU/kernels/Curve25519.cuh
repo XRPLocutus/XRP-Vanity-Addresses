@@ -379,39 +379,3 @@ __device__ void fe25519_inv(fe25519* r, const fe25519* a) {
     fe25519_mul(r, &t1, &t0);    // r = a^(2^255 - 21) = a^(p-2)
 }
 
-// pow22523: r = a^((p-5)/8) = a^(2^252 - 3)
-// Used in Ed25519 point decompression (square root computation)
-__device__ void fe25519_pow22523(fe25519* r, const fe25519* a) {
-    fe25519 t0, t1, t2;
-
-    fe25519_sq(&t0, a);           // 2
-    fe25519_sq_n(&t1, &t0, 2);   // 8
-    fe25519_mul(&t1, a, &t1);    // 9
-    fe25519_mul(&t0, &t0, &t1);  // 11
-    fe25519_sq(&t0, &t0);         // 22
-    fe25519_mul(&t0, &t1, &t0);  // 31 = 2^5 - 1
-
-    fe25519_sq_n(&t1, &t0, 5);
-    fe25519_mul(&t0, &t1, &t0);  // 2^10 - 1
-
-    fe25519_sq_n(&t1, &t0, 10);
-    fe25519_mul(&t1, &t1, &t0);  // 2^20 - 1
-
-    fe25519_sq_n(&t2, &t1, 20);
-    fe25519_mul(&t1, &t2, &t1);  // 2^40 - 1
-
-    fe25519_sq_n(&t1, &t1, 10);
-    fe25519_mul(&t0, &t1, &t0);  // 2^50 - 1
-
-    fe25519_sq_n(&t1, &t0, 50);
-    fe25519_mul(&t1, &t1, &t0);  // 2^100 - 1
-
-    fe25519_sq_n(&t2, &t1, 100);
-    fe25519_mul(&t1, &t2, &t1);  // 2^200 - 1
-
-    fe25519_sq_n(&t1, &t1, 50);
-    fe25519_mul(&t0, &t1, &t0);  // 2^250 - 1
-
-    fe25519_sq_n(&t0, &t0, 2);
-    fe25519_mul(r, &t0, a);      // 2^252 - 3
-}

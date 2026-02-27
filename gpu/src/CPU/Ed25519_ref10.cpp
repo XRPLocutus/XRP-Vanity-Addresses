@@ -72,11 +72,6 @@ static void fe_sub(fe* r, const fe* a, const fe* b) {
     r->v[4] = (a->v[4] + 0xFFFFFFFFFFFFEULL) - b->v[4];
 }
 
-static void fe_carry(fe* r) {
-    for (int i = 0; i < 4; i++) { r->v[i+1] += r->v[i] >> 51; r->v[i] &= MASK51; }
-    r->v[0] += (r->v[4] >> 51) * 19; r->v[4] &= MASK51;
-}
-
 static void fe_mul(fe* r, const fe* a, const fe* b) {
     const u64* av = a->v;
     const u64* bv = b->v;
@@ -333,74 +328,4 @@ void cpu_ed25519_derive_pubkey(const uint8_t private_key[32], uint8_t public_key
     ge_p3 point;
     ge_scalarmult_base_simple(&point, scalar);
     ge_pack(public_key, &point);
-}
-
-void cpu_ed25519_compute_basepoint_table(cpu_ge25519_precomp out[32][8]) {
-    // Basepoint
-    ge_p3 base;
-    fe_copy(&base.X, &B_X);
-    fe_copy(&base.Y, &B_Y);
-    fe_one(&base.Z);
-    fe_mul(&base.T, &B_X, &B_Y);
-
-    // For each group i (0..31), we need multiples of B * 16^i
-    // group_base = B * 16^i
-    // Entries: 1*group_base, 2*group_base, ..., 8*group_base
-    ge_p3 group_base;
-    fe_copy(&group_base.X, &base.X);
-    fe_copy(&group_base.Y, &base.Y);
-    fe_copy(&group_base.Z, &base.Z);
-    fe_copy(&group_base.T, &base.T);
-
-    for (int i = 0; i < 32; i++) {
-        // Compute 1*group_base through 8*group_base
-        ge_p3 current;
-        fe_copy(&current.X, &group_base.X);
-        fe_copy(&current.Y, &group_base.Y);
-        fe_copy(&current.Z, &group_base.Z);
-        fe_copy(&current.T, &group_base.T);
-
-        for (int j = 0; j < 8; j++) {
-            // Normalize: convert to affine (Z=1) for the precomp table
-            fe recip, x, y;
-            fe_inv(&recip, &current.Z);
-            fe_mul(&x, &current.X, &recip);
-            fe_mul(&y, &current.Y, &recip);
-
-            // precomp = (y+x, y-x, 2*d*x*y)
-            fe ypx, ymx, xy2d, xy;
-            fe_add(&ypx, &y, &x);
-            fe_carry(&ypx);  // reduce to canonical 51-bit limbs
-            fe_sub(&ymx, &y, &x);
-            fe_carry(&ymx);  // reduce to canonical 51-bit limbs
-            fe_mul(&xy, &x, &y);
-            fe_mul(&xy2d, &xy, &ED_D2);
-
-            // Copy limbs to output
-            for (int k = 0; k < 5; k++) {
-                out[i][j].ypx[k]  = ypx.v[k];
-                out[i][j].ymx[k]  = ymx.v[k];
-                out[i][j].xy2d[k] = xy2d.v[k];
-            }
-
-            // current += group_base
-            if (j < 7) {
-                ge_cached gc;
-                ge_p3_to_cached(&gc, &group_base);
-                ge_p1p1 p1p1;
-                ge_add_cached(&p1p1, &current, &gc);
-                ge_p1p1_to_p3(&current, &p1p1);
-            }
-        }
-
-        // group_base *= 256 (double 8 times)
-        // Each group covers 8 bits (2 radix-16 digits) of the scalar.
-        // TABLE[j] = multiples of B * 256^j, used by the ref10 two-pass algorithm.
-        for (int d = 0; d < 8; d++) {
-            ge_p2 p2; p2.X = group_base.X; p2.Y = group_base.Y; p2.Z = group_base.Z;
-            ge_p1p1 p1p1;
-            ge_double(&p1p1, &p2);
-            ge_p1p1_to_p3(&group_base, &p1p1);
-        }
-    }
 }

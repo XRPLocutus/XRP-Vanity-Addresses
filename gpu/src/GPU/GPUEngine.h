@@ -74,7 +74,4 @@ private:
     // Host-side state (plain structs, no CUDA types)
     uint64_t h_total_checked_;
     int      h_found_count_;
-
-    // Upload Ed25519 basepoint table to constant memory
-    bool upload_basepoint_table();
 };

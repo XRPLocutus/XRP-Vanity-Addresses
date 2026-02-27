@@ -23,13 +23,6 @@ struct ge25519_p2 {
     fe25519 X, Y, Z;
 };
 
-// Precomputed point for addition: (y+x, y-x, 2*d*x*y)
-struct ge25519_precomp {
-    fe25519 ypx;  // y + x
-    fe25519 ymx;  // y - x
-    fe25519 xy2d; // 2 * d * x * y
-};
-
 // Cached point: (Y+X, Y-X, Z, T2d) for readdition
 struct ge25519_cached {
     fe25519 YpX, YmX, Z, T2d;
@@ -54,13 +47,6 @@ __device__ __constant__ fe25519 ED25519_D2 = {{
     1815898335770999ULL,
     633789495995903ULL
 }};
-
-// Precomputed basepoint table in constant memory
-// 32 entries for 4-bit windowed scalar multiplication
-// (This covers bits in groups of 4 with 64 doublings)
-// Using 8 tables of 8 entries for a radix-16 approach
-__device__ __constant__ ge25519_precomp BASEPOINT_TABLE[32][8];
-// This will be initialized at startup from CPU-computed values
 
 // ─────────────────────────────────────────────────────────────
 // Point operations
@@ -168,56 +154,6 @@ __device__ void ge25519_sub_cached(ge25519_p1p1* r, const ge25519_p3* p, const g
     // p1p1 = (E, H, G, F) → p1p1_to_p3 produces (E*F, H*G, G*F, E*H)
 }
 
-// Addition with precomputed point (for basepoint table)
-__device__ void ge25519_add_precomp(ge25519_p1p1* r, const ge25519_p3* p, const ge25519_precomp* q) {
-    fe25519 a, b, c;
-
-    fe25519_add(&a, &p->Y, &p->X);       // A = Y1 + X1
-    fe25519_sub(&b, &p->Y, &p->X);       // B = Y1 - X1
-    fe25519_mul(&a, &a, &q->ypx);        // C = A * (y+x)
-    fe25519_mul(&b, &b, &q->ymx);        // D = B * (y-x)
-    fe25519_mul(&c, &p->T, &q->xy2d);    // E = T1 * 2*d*x*y
-
-    fe25519_add(&r->Z, &p->Z, &p->Z);    // F = 2 * Z1
-
-    fe25519_sub(&r->X, &a, &b);          // X3 = C - D
-    fe25519_add(&r->Y, &a, &b);          // Y3 = C + D
-    fe25519_add(&r->T, &r->Z, &c);       // G = F + E
-    fe25519_sub(&r->Z, &r->Z, &c);       // H = F - E (stored in Z for p1p1)
-
-    // p1p1_to_p3 computes: p3.X = p1p1.X * p1p1.T, p3.Y = p1p1.Y * p1p1.Z
-    // ref10 requires: X3 = (C-D)*H, Y3 = (C+D)*G
-    // We stored G in T-slot and H in Z-slot, so swap them.
-    fe25519 tmp;
-    fe25519_copy(&tmp, &r->Z);
-    fe25519_copy(&r->Z, &r->T);
-    fe25519_copy(&r->T, &tmp);
-}
-
-// Subtraction with precomputed point
-__device__ void ge25519_sub_precomp(ge25519_p1p1* r, const ge25519_p3* p, const ge25519_precomp* q) {
-    fe25519 a, b, c;
-
-    fe25519_add(&a, &p->Y, &p->X);
-    fe25519_sub(&b, &p->Y, &p->X);
-    fe25519_mul(&a, &a, &q->ymx);        // Swapped for negation
-    fe25519_mul(&b, &b, &q->ypx);
-    fe25519_mul(&c, &p->T, &q->xy2d);
-
-    fe25519_add(&r->Z, &p->Z, &p->Z);
-
-    fe25519_sub(&r->X, &a, &b);
-    fe25519_add(&r->Y, &a, &b);
-    fe25519_sub(&r->T, &r->Z, &c);       // Negated
-    fe25519_add(&r->Z, &r->Z, &c);
-
-    // Swap Z↔T for p1p1 convention (same as ge25519_add_precomp)
-    fe25519 tmp;
-    fe25519_copy(&tmp, &r->Z);
-    fe25519_copy(&r->Z, &r->T);
-    fe25519_copy(&r->T, &tmp);
-}
-
 // ─────────────────────────────────────────────────────────────
 // Pack/Unpack (compressed Edwards point encoding)
 // ─────────────────────────────────────────────────────────────
@@ -239,32 +175,8 @@ __device__ void ge25519_pack(uint8_t out[32], const ge25519_p3* p) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Scalar multiplication (fixed-base, windowed)
+// Scalar multiplication (double-and-add)
 // ─────────────────────────────────────────────────────────────
-
-// Select from precomputed table
-// Not constant-time — for vanity generation the scalar is not secret.
-__device__ __forceinline__
-void ge25519_select_precomp(ge25519_precomp* r, int pos, int b) {
-    int bneg = (b < 0) ? 1 : 0;
-    int babs = b - (((-bneg) & b) * 2);
-
-    fe25519_one(&r->ypx);
-    fe25519_one(&r->ymx);
-    fe25519_zero(&r->xy2d);
-
-    if (babs > 0 && babs <= 8) {
-        *r = BASEPOINT_TABLE[pos][babs - 1];
-    }
-
-    if (bneg) {
-        fe25519 tmp;
-        fe25519_copy(&tmp, &r->ypx);
-        fe25519_copy(&r->ypx, &r->ymx);
-        fe25519_copy(&r->ymx, &tmp);
-        fe25519_neg(&r->xy2d, &r->xy2d);
-    }
-}
 
 // Ed25519 basepoint B (5x51-bit limbs)
 __device__ __constant__ fe25519 ED25519_BX = {{
