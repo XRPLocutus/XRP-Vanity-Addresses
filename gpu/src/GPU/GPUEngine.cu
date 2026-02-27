@@ -4,27 +4,6 @@
 #include <cstdio>
 #include <cstring>
 
-// ─────────────────────────────────────────────────────────────
-// Ed25519 basepoint table generation (CPU-side)
-// ─────────────────────────────────────────────────────────────
-
-// The Ed25519 basepoint B (compressed form)
-static const uint8_t ED25519_BASEPOINT_BYTES[32] = {
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66
-};
-
-// Basepoint in extended coordinates (Y=4/5 mod p, X chosen for positive)
-// These are the standard Ed25519 base point coordinates:
-// x = 15112221349535807912866137220509078750507884956996801397370759635002884272941
-// y = 46316835694926478169428394003475163141307993866256225615783033890098355573289
-
-// For the precomputed table, we compute: table[i][j] = (j+1) * 16^i * B
-// where i = 0..31, j = 0..7
-// This allows 4-bit windowed scalar multiplication
-
 // Helper macro for CUDA error checking
 #define CUDA_CHECK(call) do { \
     cudaError_t err = (call); \
@@ -63,7 +42,6 @@ GPUEngine::GPUEngine(int device_id, int grid_blocks, int block_threads)
     , h_total_checked_(0)
     , h_found_count_(0)
 {
-    memset(&h_params_, 0, sizeof(h_params_));
 }
 
 GPUEngine::~GPUEngine() {
@@ -81,7 +59,6 @@ GPUEngine::~GPUEngine() {
 // ─────────────────────────────────────────────────────────────
 
 bool GPUEngine::init() {
-    // Select device
     cudaError_t err = cudaSetDevice(device_id_);
     if (err != cudaSuccess) {
         fprintf(stderr, "Failed to select GPU %d: %s\n",
@@ -89,7 +66,6 @@ bool GPUEngine::init() {
         return false;
     }
 
-    // Query device properties
     cudaDeviceProp prop;
     CUDA_CHECK(cudaGetDeviceProperties(&prop, device_id_));
     device_name_ = prop.name;
@@ -98,7 +74,6 @@ bool GPUEngine::init() {
     printf("GPU %d: %s (%d SMs, CC %d.%d)\n",
            device_id_, prop.name, sm_count_, prop.major, prop.minor);
 
-    // Auto-detect grid size if not specified
     if (grid_blocks_ <= 0) {
         grid_blocks_ = sm_count_;
     }
@@ -115,11 +90,10 @@ bool GPUEngine::init() {
     CUDA_CHECK(cudaMalloc(&d_entropy_single_, 16));
     CUDA_CHECK(cudaMalloc(&d_result_single_,  sizeof(GPUResult)));
 
-    // Initialize counters to zero
+    // Initialize counters
     CUDA_CHECK(cudaMemset(d_found_count_,   0, sizeof(int)));
     CUDA_CHECK(cudaMemset(d_total_checked_, 0, sizeof(uint64_t)));
 
-    // Upload basepoint table
     if (!upload_basepoint_table()) {
         fprintf(stderr, "Failed to upload basepoint table\n");
         return false;
@@ -131,14 +105,6 @@ bool GPUEngine::init() {
 bool GPUEngine::upload_basepoint_table() {
     // TODO: Compute the full precomputed basepoint table on CPU
     // and upload to __constant__ BASEPOINT_TABLE on GPU.
-    //
-    // For now, we'll compute it at startup:
-    // table[i][j] = (j+1) * 16^i * B for i=0..31, j=0..7
-    //
-    // This requires CPU-side Ed25519 point arithmetic, which is
-    // implemented in CPUVerify. For the initial version, we'll
-    // defer this to the integration phase and use a placeholder.
-
     printf("Basepoint table: will be computed at startup (Phase 3)\n");
     return true;
 }
@@ -148,15 +114,16 @@ bool GPUEngine::upload_basepoint_table() {
 // ─────────────────────────────────────────────────────────────
 
 void GPUEngine::set_pattern(const std::string& pattern, int type, bool case_insensitive) {
-    memset(&h_params_, 0, sizeof(h_params_));
+    SearchParams h_params;
+    memset(&h_params, 0, sizeof(h_params));
     int len = (int)pattern.size();
     if (len > 31) len = 31;
-    memcpy(h_params_.pattern, pattern.c_str(), len);
-    h_params_.pattern_len = len;
-    h_params_.pattern_type = type;
-    h_params_.case_insensitive = case_insensitive ? 1 : 0;
+    memcpy(h_params.pattern, pattern.c_str(), len);
+    h_params.pattern_len = len;
+    h_params.pattern_type = type;
+    h_params.case_insensitive = case_insensitive ? 1 : 0;
 
-    CUDA_CHECK_VOID(cudaMemcpy(d_params_, &h_params_, sizeof(SearchParams), cudaMemcpyHostToDevice));
+    CUDA_CHECK_VOID(cudaMemcpy(d_params_, &h_params, sizeof(SearchParams), cudaMemcpyHostToDevice));
 }
 
 void GPUEngine::set_seed(const uint32_t seed[8]) {
@@ -168,25 +135,21 @@ void GPUEngine::set_seed(const uint32_t seed[8]) {
 // ─────────────────────────────────────────────────────────────
 
 int GPUEngine::search_batch(uint64_t start_iteration) {
-    // Read current found count before launch
     int prev_found = 0;
     CUDA_CHECK_VOID(cudaMemcpy(&prev_found, d_found_count_, sizeof(int), cudaMemcpyDeviceToHost));
 
-    // Launch kernel
     xrpl_vanity_kernel<<<grid_blocks_, block_threads_>>>(
-        d_seed_,
-        d_params_,
+        static_cast<uint32_t*>(d_seed_),
+        static_cast<SearchParams*>(d_params_),
         start_iteration,
-        d_results_,
-        d_found_count_,
+        static_cast<GPUResult*>(d_results_),
+        static_cast<int*>(d_found_count_),
         max_results_,
-        d_total_checked_
+        static_cast<uint64_t*>(d_total_checked_)
     );
 
-    // Wait for completion
     CUDA_CHECK_VOID(cudaDeviceSynchronize());
 
-    // Read updated counters
     CUDA_CHECK_VOID(cudaMemcpy(&h_found_count_, d_found_count_, sizeof(int), cudaMemcpyDeviceToHost));
     CUDA_CHECK_VOID(cudaMemcpy(&h_total_checked_, d_total_checked_, sizeof(uint64_t), cudaMemcpyDeviceToHost));
 
@@ -202,7 +165,6 @@ std::vector<HostResult> GPUEngine::get_results() const {
         cudaMemcpy(gpu_results.data(), d_results_, count * sizeof(GPUResult), cudaMemcpyDeviceToHost);
     }
 
-    // Convert to HostResult
     std::vector<HostResult> results(count);
     for (int i = 0; i < count; i++) {
         memcpy(results[i].entropy,     gpu_results[i].entropy,     16);
@@ -231,14 +193,14 @@ void GPUEngine::reset() {
 // ─────────────────────────────────────────────────────────────
 
 HostResult GPUEngine::derive_single(const uint8_t entropy[16]) {
-    // Upload entropy
     CUDA_CHECK_VOID(cudaMemcpy(d_entropy_single_, entropy, 16, cudaMemcpyHostToDevice));
 
-    // Launch single-thread kernel
-    xrpl_derive_single<<<1, 1>>>(d_entropy_single_, d_result_single_);
+    xrpl_derive_single<<<1, 1>>>(
+        static_cast<uint8_t*>(d_entropy_single_),
+        static_cast<GPUResult*>(d_result_single_)
+    );
     CUDA_CHECK_VOID(cudaDeviceSynchronize());
 
-    // Download result
     GPUResult gpu_result;
     CUDA_CHECK_VOID(cudaMemcpy(&gpu_result, d_result_single_, sizeof(GPUResult), cudaMemcpyDeviceToHost));
 

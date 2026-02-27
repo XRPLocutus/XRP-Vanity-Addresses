@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "kernels/xrpl_kernel.cuh"
+
+// Iterations per thread per kernel launch (must match xrpl_kernel.cuh)
+#define ITERATIONS_PER_THREAD 64
 
 // Host-side result with all intermediate values
 struct HostResult {
@@ -58,19 +60,18 @@ private:
     std::string device_name_;
     int sm_count_;
 
-    // Device memory pointers
-    uint32_t*     d_seed_;
-    SearchParams* d_params_;
-    GPUResult*    d_results_;
-    int*          d_found_count_;
-    uint64_t*     d_total_checked_;
-    uint8_t*      d_entropy_single_;
-    GPUResult*    d_result_single_;
+    // Device memory pointers (opaque — only used in .cu file)
+    void* d_seed_;
+    void* d_params_;
+    void* d_results_;
+    void* d_found_count_;
+    void* d_total_checked_;
+    void* d_entropy_single_;
+    void* d_result_single_;
 
-    // Host-side state
-    SearchParams  h_params_;
-    uint64_t      h_total_checked_;
-    int           h_found_count_;
+    // Host-side state (plain structs, no CUDA types)
+    uint64_t h_total_checked_;
+    int      h_found_count_;
 
     // Upload Ed25519 basepoint table to constant memory
     bool upload_basepoint_table();
