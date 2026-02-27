@@ -1,4 +1,4 @@
-# ⚡ XRPL Vanity Address Generator v2.2
+# ⚡ XRPL Vanity Address Generator v2.3
 
 A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Generates Ed25519 keypairs at maximum speed using all available CPU cores to find addresses matching a desired prefix, suffix, substring, or any combination.
 
@@ -8,7 +8,7 @@ A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Ge
 
 ## Features
 
-- 🚀 **Blazing fast** – ChaCha20 RNG, hardware-accelerated SHA-256, zero heap allocations in hot loop
+- 🚀 **Blazing fast** – batch RNG, SHA-NI acceleration, zero heap allocations in hot loop
 - 🧵 **Multithreaded** – automatically uses all CPU cores via [Rayon](https://github.com/rayon-rs/rayon)
 - 🔐 **Correct XRPL derivation** – standard 16-byte entropy → SHA-512-Half → Ed25519 path
 - 🔑 **Importable seeds** – sEd... output works directly in XUMM/Xaman, Ledger, and all XRPL wallets
@@ -23,24 +23,22 @@ A high-performance vanity wallet address generator for the XRP Ledger (XRPL). Ge
 - 🔒 **Fully offline** – no network connection needed, keys never leave your machine
 - 🪟 **Cross-platform** – works on Windows, Linux, and macOS
 
-## v2.0 Changes
+## Recent Changes
 
-### Security Fixes
-- **Correct key derivation** – uses the standard XRPL path: 16-byte entropy → SHA-512-Half → 32-byte Ed25519 private key
-- **Correct seed encoding** – sEd... output encodes the 16-byte entropy (not the raw key), making it importable by any XRPL wallet
-- **Correct address derivation** – 0xED prefix on public key before hashing, matching ledger behavior
-- **Case-insensitive validation** – `-i` flag no longer skips character validation
+### v2.3 — Performance
+- **Batch RNG** – pre-generates 4096 bytes (256 entropies) per call, ~256x fewer RNG calls
+- **SHA-NI acceleration** – `target-cpu=native` enables hardware SHA-256 on supported CPUs
+- **Reduced atomic contention** – larger progress intervals for less cross-thread overhead
 
-### Performance
-- **ChaCha20Rng** replaces OsRng (~5x faster random number generation)
-- **Hardware-accelerated SHA-256** via `sha2` asm feature
-- **target-cpu=native** via `.cargo/config.toml` (enables AVX2/AVX-512 on supported CPUs)
-- **Zero heap allocations** in the hot loop (all stack buffers)
+### v2.2 — Security Hardening
+- **Secret zeroization** – all keys/seeds wiped from memory on drop via [`zeroize`](https://crates.io/crates/zeroize)
+- **`--clear` flag** – clears screen and scrollback after displaying results
+- **Entropy validation** – startup check ensures OS CSPRNG is functional
 
-### Display
-- **Consistent box borders** – all content properly enclosed
-- **Wider output box** (84 chars) – fits full 64-char hex secrets without overflow
-- **Progress on stderr** – overwrites in place, no scrolling
+### v2.0 — Correctness
+- **Correct key derivation** – standard XRPL path: 16-byte entropy → SHA-512-Half → Ed25519
+- **Correct seed encoding** – sEd... encodes entropy, importable by any XRPL wallet
+- **Correct address derivation** – 0xED prefix on public key before hashing
 
 ## Performance
 
@@ -124,7 +122,7 @@ xrpl-vanity --prefix Bob --clear
 
 ```
 ╔════════════════════════════════════════════════════════════════════════════════════╗
-║  XRPL Vanity Wallet Generator v2.0                                                 ║
+║  XRPL Vanity Wallet Generator v2.3                                                 ║
 ╠════════════════════════════════════════════════════════════════════════════════════╣
 ║  Mode:             prefix "Bob"                                                    ║
 ║  Case-insensitive: No                                                              ║
