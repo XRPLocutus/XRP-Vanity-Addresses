@@ -53,7 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 - ChaCha20Rng replaces OsRng for ~5x faster random number generation
-- Hardware-accelerated SHA-256 via `sha2` asm feature
 - Moved target-cpu=native to `.cargo/config.toml` as a proper rustc flag (eliminates build warning)
 - Zero heap allocations in the hot loop (stack buffers only)
 
